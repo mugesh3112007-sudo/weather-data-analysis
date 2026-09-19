@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Weather Data Analysis — Live</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root{
+    --ink:#0D1F1B; --panel:#12302A; --panel-2:#183A32; --panel-3:#1E463C;
+    --line: rgba(231,240,234,0.09); --line-strong: rgba(231,240,234,0.18);
+    --text:#E7F0EA; --text-dim:#93B3A5; --text-faint:#5D7A6E;
+    --saffron:#E0942F; --saffron-dim: rgba(224,148,47,0.16);
+    --verified:#4FAE7E; --verified-dim: rgba(79,174,126,0.14);
+    --flagged:#DC6A50; --flagged-dim: rgba(220,106,80,0.14);
+    --pending:#6FA6C9; --pending-dim: rgba(111,166,201,0.14);
+    --flood:#4FA0DC; --heatwave:#E0942F; --fog:#93B3A5;
+    --font-ui:'IBM Plex Sans',system-ui,sans-serif; --font-mono:'IBM Plex Mono',ui-monospace,monospace;
+  }
+  *{box-sizing:border-box;} body{margin:0;background:var(--ink);color:var(--text);font-family:var(--font-ui);}
+  .wrap{max-width:1040px;margin:0 auto;padding:32px 22px 70px;}
+  header{margin-bottom:26px;}
+  header h1{font-size:22px;margin:0 0 6px;}
+  header p{margin:0;color:var(--text-dim);font-size:13.5px;max-width:640px;line-height:1.5;}
+  .badge-live{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px;color:var(--verified);margin-bottom:10px;}
+  .badge-live i{width:7px;height:7px;border-radius:50%;background:var(--verified);}
+  nav{display:flex;gap:8px;margin-bottom:22px;border-bottom:1px solid var(--line);}
+  nav button{background:none;border:none;color:var(--text-faint);font-family:var(--font-ui);font-size:13px;padding:10px 4px;cursor:pointer;border-bottom:2px solid transparent;margin-right:18px;}
+  nav button.active{color:var(--text);border-bottom-color:var(--saffron);}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:18px;}
+  .panel-head{padding:13px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;}
+  .panel-head h2{font-size:13px;font-weight:600;margin:0;}
+  .panel-head .meta{font-family:var(--font-mono);font-size:10.5px;color:var(--text-faint);}
+
+  #mapEl{ height:440px; width:100%; background:var(--panel-2); }
+  .leaflet-popup-content-wrapper{ background:var(--panel-3); color:var(--text); border-radius:8px; }
+  .leaflet-popup-content{ font-family:var(--font-ui); font-size:12.5px; margin:10px 12px; }
+  .leaflet-popup-tip{ background:var(--panel-3); }
+  .leaflet-container{ font-family:var(--font-ui); }
+
+  .legend{display:flex;gap:14px;padding:12px 16px;flex-wrap:wrap;border-top:1px solid var(--line);}
+  .legend span{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-dim);font-family:var(--font-mono);}
+  .legend i{width:8px;height:8px;border-radius:50%;display:inline-block;}
+
+  .city-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;padding:16px;}
+  .city-card{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:12px;}
+  .city-card .name{font-weight:600;font-size:13.5px;margin-bottom:4px;}
+  .city-card .cond{font-family:var(--font-mono);font-size:11.5px;color:var(--text-dim);margin-top:6px;}
+  .city-card .loading{color:var(--text-faint);font-size:11.5px;font-family:var(--font-mono);}
+
+  .feed-item{display:flex;gap:12px;padding:13px 16px;border-left:3px solid var(--line-strong);border-bottom:1px solid var(--line);}
+  .feed-item.status-verified{border-left-color:var(--verified);}
+  .feed-item.status-flagged{border-left-color:var(--flagged);}
+  .feed-item.status-pending{border-left-color:var(--pending);}
+  .feed-desc{margin:0 0 5px;font-size:13px;}
+  .feed-meta{font-family:var(--font-mono);font-size:10.8px;color:var(--text-faint);display:flex;gap:10px;flex-wrap:wrap;}
+  .status-tag{font-family:var(--font-mono);font-size:10.2px;}
+  .status-tag.status-verified{color:var(--verified);} .status-tag.status-flagged{color:var(--flagged);} .status-tag.status-pending{color:var(--pending);}
+
+  .form-panel{padding:18px;max-width:560px;}
+  .field{margin-bottom:16px;} .field label{display:block;font-size:12px;color:var(--text-dim);margin-bottom:6px;}
+  .field input,.field select,.field textarea{width:100%;background:var(--panel-2);border:1px solid var(--line-strong);border-radius:7px;padding:10px 11px;color:var(--text);font-family:var(--font-ui);font-size:13.5px;}
+  .field textarea{min-height:74px;resize:vertical;}
+  .btn{border:none;border-radius:8px;padding:11px 18px;font-size:13.5px;font-weight:600;cursor:pointer;background:var(--saffron);color:#1A1005;}
+  .btn:disabled{opacity:0.5;cursor:default;}
+  .result{margin-top:16px;padding:14px;border-radius:8px;display:none;}
+  .result.show{display:block;}
+  .result.ok{background:var(--verified-dim);} .result.bad{background:var(--flagged-dim);}
+  .result h3{margin:0 0 6px;font-size:13.5px;} .result p{margin:0;font-size:12.5px;color:var(--text-dim);line-height:1.5;}
+  .empty{padding:24px;color:var(--text-faint);font-size:12.5px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="badge-live"><i></i>LIVE — pulling real weather data from Open-Meteo</div>
+    <h1>Weather Data Analysis</h1>
+    <p>This runs on a real backend. Map and city conditions below are fetched live; reports you submit are checked against that live data and stored in a real database.</p>
+  </header>
+  <nav>
+    <button data-tab="map" class="active">Map</button>
+    <button data-tab="feed">Report feed</button>
+    <button data-tab="submit">Submit report</button>
+  </nav>
+  <div id="content"></div>
+</div>
+
+<script>
+// When the frontend and backend are hosted separately (Vercel + Render),
+// point this at your Render backend's URL, e.g.:
+//   var API_BASE = 'https://weather-data-analysis.onrender.com';
+// Leave it as '' when running both locally on the same machine.
+var API_BASE = '';
+
+var EVENT_LABELS = { flood:'Flood', storm:'Thunderstorm / heavy rain', heatwave:'Heatwave', fog:'Fog', clear:'Clear conditions' };
+var CONDITION_COLOR = {
+  flood: 'var(--flood)', storm: 'var(--flagged)', heatwave: 'var(--heatwave)',
+  fog: 'var(--fog)', clear: 'var(--verified)'
+};
+var currentTab = 'map';
+var citiesCache = null;
+var leafletMap = null;
+
+function el(id){ return document.getElementById(id); }
+function cssVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name.replace('var(','').replace(')','')).trim(); }
+function resolveColor(v){
+  // v is like 'var(--flood)' — resolve to an actual hex for Leaflet, which doesn't understand CSS vars.
+  if (v.indexOf('var(') === 0) return cssVar(v);
+  return v;
+}
+
+document.querySelectorAll('nav button').forEach(function(b){
+  b.addEventListener('click', function(){
+    document.querySelectorAll('nav button').forEach(function(x){ x.classList.remove('active'); });
+    b.classList.add('active');
+    currentTab = b.dataset.tab;
+    leafletMap = null; // force re-init if we come back to Map tab
+    render();
+  });
+});
+
+function render(){
+  if (currentTab === 'map') renderMapTab();
+  else if (currentTab === 'feed') renderFeed();
+  else renderSubmit();
+}
+
+function renderMapTab(){
+  el('content').innerHTML =
+    '<div class="panel">' +
+      '<div class="panel-head"><h2>Live map — India</h2><span class="meta">OpenStreetMap · click a marker</span></div>' +
+      '<div id="mapEl"></div>' +
+      '<div class="legend">' +
+        '<span><i style="background:'+resolveColor(CONDITION_COLOR.flood)+'"></i>Flood</span>' +
+        '<span><i style="background:'+resolveColor(CONDITION_COLOR.storm)+'"></i>Storm</span>' +
+        '<span><i style="background:'+resolveColor(CONDITION_COLOR.heatwave)+'"></i>Heatwave</span>' +
+        '<span><i style="background:'+resolveColor(CONDITION_COLOR.fog)+'"></i>Fog</span>' +
+        '<span><i style="background:'+resolveColor(CONDITION_COLOR.clear)+'"></i>Clear</span>' +
+      '</div>' +
+    '</div>' +
+    '<div class="panel"><div class="panel-head"><h2>Tracked cities</h2></div>' +
+    '<div class="city-grid" id="cityGrid"><div class="empty">Loading live weather data…</div></div></div>';
+
+  fetch(API_BASE + '/api/cities').then(function(r){ return r.json(); }).then(function(cities){
+    citiesCache = cities;
+    initMap(cities);
+
+    var grid = el('cityGrid');
+    grid.innerHTML = cities.map(function(c){
+      return '<div class="city-card" id="card-'+c.id+'"><div class="name">'+c.name+'</div><div class="loading">fetching…</div></div>';
+    }).join('');
+
+    cities.forEach(function(c){
+      fetch(API_BASE + '/api/ground-truth/' + c.id).then(function(r){ return r.json(); }).then(function(g){
+        var card = el('card-' + c.id);
+        if (card){
+          card.innerHTML =
+            '<div class="name">' + c.name + '</div>' +
+            '<div class="cond">' + g.condition_label + '</div>' +
+            '<div class="cond">' + (g.temperature_c != null ? g.temperature_c + '°C' : '—') +
+            (g.precipitation_mm != null ? ' · ' + g.precipitation_mm + 'mm/hr' : '') + '</div>';
+        }
+        colorMarker(c.id, g);
+      }).catch(function(){
+        var card = el('card-' + c.id);
+        if (card) card.innerHTML = '<div class="name">' + c.name + '</div><div class="loading">unavailable</div>';
+      });
+    });
+  });
+}
+
+var markersByCity = {};
+
+function initMap(cities){
+  var container = el('mapEl');
+  if (!container || typeof L === 'undefined') return;
+
+  leafletMap = L.map('mapEl', { scrollWheelZoom: false }).setView([22.9, 79.5], 5);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 12,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  }).addTo(leafletMap);
+
+  markersByCity = {};
+  cities.forEach(function(c){
+    var m = L.circleMarker([c.lat, c.lon], {
+      radius: 9, weight: 2, color: resolveColor('var(--text-faint)'),
+      fillColor: resolveColor('var(--text-faint)'), fillOpacity: 0.85
+    }).addTo(leafletMap);
+    m.bindPopup('<b>' + c.name + '</b><br>Loading live data…');
+    markersByCity[c.id] = m;
+  });
+}
+
+function colorMarker(cityId, ground){
+  var m = markersByCity[cityId];
+  if (!m) return;
+  var color = resolveColor(CONDITION_COLOR[ground.condition] || 'var(--text-faint)');
+  m.setStyle({ color: color, fillColor: color });
+  var tempStr = ground.temperature_c != null ? ground.temperature_c + '°C' : '—';
+  var precipStr = ground.precipitation_mm != null ? ' · ' + ground.precipitation_mm + 'mm/hr' : '';
+  m.setPopupContent('<b>' + cityNameById(cityId) + '</b><br>' + ground.condition_label + '<br>' + tempStr + precipStr);
+}
+
+function cityNameById(id){
+  if (!citiesCache) return id;
+  for (var i=0;i<citiesCache.length;i++){ if (citiesCache[i].id === id) return citiesCache[i].name; }
+  return id;
+}
+
+function renderFeed(){
+  el('content').innerHTML =
+    '<div class="panel"><div class="panel-head"><h2>Report feed</h2></div><div id="feedList"><div class="empty">Loading…</div></div></div>';
+  fetch(API_BASE + '/api/reports').then(function(r){ return r.json(); }).then(function(reports){
+    var list = el('feedList');
+    if (!reports.length){ list.innerHTML = '<div class="empty">No reports yet — submit one from the Submit tab.</div>'; return; }
+    list.innerHTML = reports.map(function(r){
+      var when = new Date(r.created_at * 1000).toLocaleString('en-IN');
+      var statusText = r.status === 'verified' ? 'Verified' : (r.status === 'pending' ? 'Pending' : 'Flagged — no matching ground data');
+      return '<div class="feed-item status-' + r.status + '">' +
+        '<div style="flex:1;">' +
+        '<span class="status-tag status-' + r.status + '">' + statusText + '</span>' +
+        '<p class="feed-desc">' + r.description + '</p>' +
+        '<div class="feed-meta"><span>' + r.source + '</span><span>' + r.city_id + '</span><span>' + when + '</span></div>' +
+        '</div></div>';
+    }).join('');
+  });
+}
+
+function renderSubmit(){
+  var cities = citiesCache || [];
+  function draw(){
+    var opts = cities.map(function(c){ return '<option value="' + c.id + '">' + c.name + '</option>'; }).join('');
+    var typeOpts = Object.keys(EVENT_LABELS).map(function(k){ return '<option value="' + k + '">' + EVENT_LABELS[k] + '</option>'; }).join('');
+    el('content').innerHTML =
+      '<div class="panel"><div class="form-panel">' +
+      '<form id="reportForm">' +
+      '<div class="field"><label>City</label><select id="fCity">' + opts + '</select></div>' +
+      '<div class="field"><label>Event type</label><select id="fType">' + typeOpts + '</select></div>' +
+      '<div class="field"><label>Description</label><textarea id="fDesc" placeholder="What are you seeing right now?"></textarea></div>' +
+      '<button type="submit" class="btn" id="submitBtn">Submit &amp; verify against live data</button>' +
+      '</form><div class="result" id="result"></div>' +
+      '</div></div>';
+
+    el('reportForm').addEventListener('submit', function(e){
+      e.preventDefault();
+      var btn = el('submitBtn');
+      btn.disabled = true; btn.textContent = 'Checking live weather data…';
+      var payload = { city_id: el('fCity').value, type: el('fType').value, description: el('fDesc').value || 'No description provided.' };
+      fetch(API_BASE + '/api/reports', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+      }).then(function(r){ return r.json(); }).then(function(data){
+        var res = el('result');
+        res.className = 'result show ' + (data.matches ? 'ok' : 'bad');
+        res.innerHTML = data.matches ?
+          '<h3>✓ Verified against live data</h3><p>Live conditions for this city show ' + data.ground_truth.condition_label + ', matching your report.</p>' :
+          '<h3>⚠ Flagged — no match</h3><p>You reported ' + EVENT_LABELS[payload.type] + ', but live conditions show ' + data.ground_truth.condition_label + '. This report is flagged for review.</p>';
+        btn.disabled = false; btn.textContent = 'Submit & verify against live data';
+        el('reportForm').reset();
+      }).catch(function(){
+        btn.disabled = false; btn.textContent = 'Submit & verify against live data';
+        alert('Something went wrong reaching the server.');
+      });
+    });
+  }
+  if (cities.length) draw();
+  else fetch(API_BASE + '/api/cities').then(function(r){ return r.json(); }).then(function(c){ citiesCache = c; cities = c; draw(); });
+}
+
+render();
+</script>
+</body>
+</html>
