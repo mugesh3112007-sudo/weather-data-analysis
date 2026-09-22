@@ -29,6 +29,7 @@ import sqlite3
 import time
 from datetime import datetime
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
 import imagehash
 import praw
@@ -872,7 +873,9 @@ def generate_impact_forecast(city_id: str):
 
 @app.get("/api/impact-forecast")
 def get_all_impact_forecasts():
-    return [generate_impact_forecast(city["id"]) for city in CITIES]
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        results = list(executor.map(generate_impact_forecast, [city["id"] for city in CITIES]))
+    return results
 
 @app.get("/api/impact-forecast/{city_id}")
 def get_impact_forecast(city_id: str):
