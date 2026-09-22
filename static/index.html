@@ -52,6 +52,7 @@
   .city-card .loading{color:var(--text-faint);font-size:11.5px;font-family:var(--font-mono);}
 
   .feed-item{display:flex;gap:12px;padding:13px 16px;border-left:3px solid var(--line-strong);border-bottom:1px solid var(--line);}
+  .feed-thumb{width:56px;height:56px;object-fit:cover;border-radius:6px;flex:none;background:var(--panel-2);}
   .feed-item.status-verified{border-left-color:var(--verified);}
   .feed-item.status-flagged{border-left-color:var(--flagged);}
   .feed-item.status-pending{border-left-color:var(--pending);}
@@ -64,6 +65,10 @@
   .field{margin-bottom:16px;} .field label{display:block;font-size:12px;color:var(--text-dim);margin-bottom:6px;}
   .field input,.field select,.field textarea{width:100%;background:var(--panel-2);border:1px solid var(--line-strong);border-radius:7px;padding:10px 11px;color:var(--text);font-family:var(--font-ui);font-size:13.5px;}
   .field textarea{min-height:74px;resize:vertical;}
+  .file-drop{border:1px dashed var(--line-strong);border-radius:8px;padding:16px;text-align:center;color:var(--text-faint);font-size:12px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;}
+  .file-drop:hover{border-color:var(--saffron);color:var(--text-dim);}
+  .file-drop img{max-height:100px;border-radius:6px;margin-top:6px;}
+  .hidden{display:none !important;}
   .btn{border:none;border-radius:8px;padding:11px 18px;font-size:13.5px;font-weight:600;cursor:pointer;background:var(--saffron);color:#1A1005;}
   .btn:disabled{opacity:0.5;cursor:default;}
   .result{margin-top:16px;padding:14px;border-radius:8px;display:none;}
@@ -231,8 +236,18 @@ function renderFeed(){
     if (!reports.length){ list.innerHTML = '<div class="empty">No reports yet — submit one from the Submit tab.</div>'; return; }
     list.innerHTML = reports.map(function(r){
       var when = new Date(r.created_at * 1000).toLocaleString('en-IN');
-      var statusText = r.status === 'verified' ? 'Verified' : (r.status === 'pending' ? 'Pending' : 'Flagged — no matching ground data');
+      var statusText;
+      if (r.status === 'verified') statusText = 'Verified';
+      else if (r.status === 'pending') statusText = 'Pending';
+      else if (r.flag_reason === 'duplicate_image') statusText = 'Flagged — duplicate image';
+      else statusText = 'Flagged — no matching ground data';
+
+      var thumbHtml = r.photo_path
+        ? '<img class="feed-thumb" src="' + API_BASE + r.photo_path + '" alt="submitted photo">'
+        : '';
+
       return '<div class="feed-item status-' + r.status + '">' +
+        thumbHtml +
         '<div style="flex:1;">' +
         '<span class="status-tag status-' + r.status + '">' + statusText + '</span>' +
         '<p class="feed-desc">' + r.description + '</p>' +
@@ -296,25 +311,65 @@ function renderSubmit(){
       '<div class="field"><label>City</label><select id="fCity">' + opts + '</select></div>' +
       '<div class="field"><label>Event type</label><select id="fType">' + typeOpts + '</select></div>' +
       '<div class="field"><label>Description</label><textarea id="fDesc" placeholder="What are you seeing right now?"></textarea></div>' +
+      '<div class="field"><label>Photo (optional — checked for recycled/duplicate images)</label>' +
+        '<div class="file-drop" id="fileDrop"><span id="fileDropLabel">Click to attach a photo</span><input type="file" id="fPhoto" accept="image/*" class="hidden"><img id="filePreview" class="hidden"></div>' +
+      '</div>' +
       '<button type="submit" class="btn" id="submitBtn">Submit &amp; verify against live data</button>' +
       '</form><div class="result" id="result"></div>' +
       '</div></div>';
+
+    var fileDrop = el('fileDrop');
+    var fPhoto = el('fPhoto');
+    var filePreview = el('filePreview');
+    var fileDropLabel = el('fileDropLabel');
+    fileDrop.addEventListener('click', function(){ fPhoto.click(); });
+    fPhoto.addEventListener('change', function(){
+      if (fPhoto.files && fPhoto.files[0]){
+        try{
+          var url = URL.createObjectURL(fPhoto.files[0]);
+          filePreview.src = url;
+          filePreview.classList.remove('hidden');
+          fileDropLabel.textContent = fPhoto.files[0].name;
+        }catch(err){}
+      }
+    });
 
     el('reportForm').addEventListener('submit', function(e){
       e.preventDefault();
       var btn = el('submitBtn');
       btn.disabled = true; btn.textContent = 'Checking live weather data…';
-      var payload = { city_id: el('fCity').value, type: el('fType').value, description: el('fDesc').value || 'No description provided.' };
-      fetch(API_BASE + '/api/reports', {
-        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
-      }).then(function(r){ return r.json(); }).then(function(data){
+
+      var eventType = el('fType').value;
+      var formData = new FormData();
+      formData.append('city_id', el('fCity').value);
+      formData.append('type', eventType);
+      formData.append('description', el('fDesc').value || 'No description provided.');
+      if (fPhoto.files && fPhoto.files[0]) {
+        formData.append('photo', fPhoto.files[0]);
+      }
+
+      fetch(API_BASE + '/api/reports', { method: 'POST', body: formData })
+      .then(function(r){ return r.json(); })
+      .then(function(data){
         var res = el('result');
-        res.className = 'result show ' + (data.matches ? 'ok' : 'bad');
-        res.innerHTML = data.matches ?
-          '<h3>✓ Verified against live data</h3><p>Live conditions for this city show ' + data.ground_truth.condition_label + ', matching your report.</p>' :
-          '<h3>⚠ Flagged — no match</h3><p>You reported ' + EVENT_LABELS[payload.type] + ', but live conditions show ' + data.ground_truth.condition_label + '. This report is flagged for review.</p>';
+        if (data.duplicate_of) {
+          res.className = 'result show bad';
+          res.innerHTML = '<h3>⚠ Flagged — duplicate image detected</h3>' +
+            '<p>This photo\'s visual fingerprint matches report #' + data.duplicate_of +
+            ' already in the system — it looks like a recycled or reposted image rather than new evidence.</p>';
+        } else if (data.matches) {
+          res.className = 'result show ok';
+          res.innerHTML = '<h3>✓ Verified against live data</h3><p>Live conditions for this city show ' +
+            data.ground_truth.condition_label + ', matching your report.</p>';
+        } else {
+          res.className = 'result show bad';
+          res.innerHTML = '<h3>⚠ Flagged — no match</h3><p>You reported ' + EVENT_LABELS[eventType] +
+            ', but live conditions show ' + data.ground_truth.condition_label + '. This report is flagged for review.</p>';
+        }
         btn.disabled = false; btn.textContent = 'Submit & verify against live data';
         el('reportForm').reset();
+        filePreview.classList.add('hidden');
+        fileDropLabel.textContent = 'Click to attach a photo';
       }).catch(function(){
         btn.disabled = false; btn.textContent = 'Submit & verify against live data';
         alert('Something went wrong reaching the server.');

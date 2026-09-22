@@ -21,22 +21,25 @@ What's simplified (clearly marked TODO, for you to extend later):
     an honest limitation, not a bug
 """
 
+import io
 import math
 import os
+import secrets
 import sqlite3
 import time
 from datetime import datetime
 from pathlib import Path
 
+import imagehash
 import praw
 import requests
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from PIL import Image
 
 load_dotenv()  # reads a local .env file if present; does nothing on Render,
                 # where you set these as real environment variables instead
@@ -47,6 +50,12 @@ REDDIT_USER_AGENT = os.environ.get("REDDIT_USER_AGENT", "weather-data-analysis-b
 
 DB_PATH = Path(__file__).parent / "weathergrid.db"
 STATIC_DIR = Path(__file__).parent / "static"
+UPLOADS_DIR = Path(__file__).parent / "uploads"
+UPLOADS_DIR.mkdir(exist_ok=True)
+
+# How close two images' perceptual hashes must be (Hamming distance) to be
+# treated as duplicates/recycled photos. Lower = stricter match required.
+DUPLICATE_HASH_THRESHOLD = 6
 
 # ---------------------------------------------------------------------------
 # Cities we track. Real latitude/longitude — used to query real weather data.
@@ -111,19 +120,22 @@ def init_db():
             flag_reason TEXT,
             ground_condition TEXT,
             created_at INTEGER NOT NULL,
-            external_id TEXT
+            external_id TEXT,
+            photo_path TEXT,
+            photo_hash TEXT
         )
     """)
     conn.commit()
 
     # Migration safety net: if you're running this against an older database
-    # file created before "external_id" existed, add it now. Harmless no-op
-    # on a fresh database (the column already exists from CREATE TABLE above).
-    try:
-        conn.execute("ALTER TABLE reports ADD COLUMN external_id TEXT")
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass
+    # file created before these columns existed, add them now. Harmless
+    # no-op on a fresh database (columns already exist from CREATE TABLE above).
+    for column, coltype in [("external_id", "TEXT"), ("photo_path", "TEXT"), ("photo_hash", "TEXT")]:
+        try:
+            conn.execute(f"ALTER TABLE reports ADD COLUMN {column} {coltype}")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
 
     # Seed a few example reports on first run so the feed isn't empty.
     count = conn.execute("SELECT COUNT(*) AS c FROM reports").fetchone()["c"]
@@ -148,6 +160,49 @@ def city_by_id(city_id):
         if c["id"] == city_id:
             return c
     return None
+
+
+# ---------------------------------------------------------------------------
+# REAL perceptual image hashing — catches recycled/duplicate disaster photos.
+# Uses imagehash's pHash algorithm: visually similar images (even resized,
+# recompressed, or lightly cropped) produce hashes that are "close" to each
+# other, measured by Hamming distance. This is a real, working version of
+# the duplicate-detection idea from the original pitch — not a simulation.
+#
+# Known limitation, worth saying out loud in a demo: Render's free tier has
+# an ephemeral filesystem, so uploaded photo files (not their hashes, which
+# live in the database) are lost on every redeploy/restart. Fine for a demo;
+# a production version would store images in S3 or similar cloud storage.
+# ---------------------------------------------------------------------------
+def compute_phash(image_bytes: bytes):
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    return imagehash.phash(img)
+
+
+def find_duplicate(conn, new_hash):
+    """Returns the id of an existing report whose photo hash is within the
+    duplicate threshold of new_hash, or None if no match is found."""
+    rows = conn.execute(
+        "SELECT id, photo_hash FROM reports WHERE photo_hash IS NOT NULL"
+    ).fetchall()
+    for row in rows:
+        try:
+            existing_hash = imagehash.hex_to_hash(row["photo_hash"])
+            if (new_hash - existing_hash) <= DUPLICATE_HASH_THRESHOLD:
+                return row["id"]
+        except Exception:
+            continue
+    return None
+
+
+def save_uploaded_photo(filename: str, contents: bytes) -> str:
+    """Saves the uploaded file to disk and returns its public URL path."""
+    ext = Path(filename).suffix.lower() or ".jpg"
+    if ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+        ext = ".jpg"
+    unique_name = f"{int(time.time())}_{secrets.token_hex(4)}{ext}"
+    (UPLOADS_DIR / unique_name).write_bytes(contents)
+    return f"/uploads/{unique_name}"
 
 
 # ---------------------------------------------------------------------------
@@ -430,13 +485,6 @@ def ingest_nasa_eonet():
 # ---------------------------------------------------------------------------
 # API models & routes
 # ---------------------------------------------------------------------------
-class ReportIn(BaseModel):
-    city_id: str
-    type: str
-    description: str
-    source: str = "Citizen App"
-
-
 @app.get("/api/cities")
 def get_cities():
     return CITIES
@@ -490,30 +538,70 @@ def get_reports():
 
 
 @app.post("/api/reports")
-def create_report(report: ReportIn):
-    if not city_by_id(report.city_id):
+async def create_report(
+    city_id: str = Form(...),
+    type: str = Form(...),
+    description: str = Form(...),
+    source: str = Form("Citizen App"),
+    photo: UploadFile = File(None),
+):
+    if not city_by_id(city_id):
         raise HTTPException(status_code=400, detail="Unknown city")
-    if report.type not in EVENT_LABELS:
+    if type not in EVENT_LABELS:
         raise HTTPException(status_code=400, detail="Unknown event type")
 
-    ground = fetch_ground_truth(report.city_id)
-    matches = ground["condition"] == report.type
-    status = "verified" if matches else "flagged"
-    flag_reason = None if matches else "mismatch"
-
     conn = get_db()
+
+    photo_path = None
+    photo_hash_str = None
+    duplicate_of = None
+
+    if photo is not None and photo.filename:
+        contents = await photo.read()
+        try:
+            phash = compute_phash(contents)
+            photo_hash_str = str(phash)
+            duplicate_of = find_duplicate(conn, phash)
+            photo_path = save_uploaded_photo(photo.filename, contents)
+        except Exception as e:
+            # A corrupt/unsupported image shouldn't crash the whole submission —
+            # just proceed without photo analysis for this report.
+            print(f"[photo] Could not process uploaded image: {e}")
+
+    if duplicate_of is not None:
+        # A recycled/duplicate photo overrides normal verification — even if
+        # the claimed event type happens to match today's weather, reusing
+        # someone else's image is itself the thing being flagged here.
+        status = "flagged"
+        flag_reason = "duplicate_image"
+        ground_condition = None
+        matches = False
+        ground = None
+    else:
+        ground = fetch_ground_truth(city_id)
+        matches = ground["condition"] == type
+        status = "verified" if matches else "flagged"
+        flag_reason = None if matches else "mismatch"
+        ground_condition = ground["condition"]
+
     cur = conn.execute(
-        "INSERT INTO reports (source, city_id, type, description, status, flag_reason, ground_condition, created_at) "
-        "VALUES (?,?,?,?,?,?,?,?)",
-        (report.source, report.city_id, report.type, report.description, status, flag_reason,
-         ground["condition"], int(time.time())),
+        "INSERT INTO reports "
+        "(source, city_id, type, description, status, flag_reason, ground_condition, created_at, photo_path, photo_hash) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (source, city_id, type, description, status, flag_reason, ground_condition,
+         int(time.time()), photo_path, photo_hash_str),
     )
     conn.commit()
     new_id = cur.lastrowid
     row = conn.execute("SELECT * FROM reports WHERE id=?", (new_id,)).fetchone()
     conn.close()
 
-    return {"report": dict(row), "ground_truth": ground, "matches": matches}
+    return {
+        "report": dict(row),
+        "ground_truth": ground,
+        "matches": matches,
+        "duplicate_of": duplicate_of,
+    }
 
 
 @app.post("/api/ingest/reddit")
@@ -548,6 +636,7 @@ scheduler.add_job(ingest_nasa_eonet, "interval", minutes=15, next_run_time=datet
 scheduler.start()
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
 
 @app.get("/")
