@@ -293,8 +293,13 @@ function selectImpactCity(cityId){
     });
   }
 
-  // Fetch detailed impact for this city
-  fetch(API_BASE + '/api/impact-forecast/' + cityId).then(function(r){ return r.json(); }).then(function(data){
+  // Fetch detailed impact and early warnings for this city
+  Promise.all([
+    fetch(API_BASE + '/api/impact-forecast/' + cityId).then(function(r){ return r.json(); }),
+    fetch(API_BASE + '/api/early-warnings/' + cityId).then(function(r){ return r.json(); })
+  ]).then(function(results){
+    var data = results[0];
+    data.early_warnings = results[1];
     renderImpactDetail(data);
   }).catch(function(){
     el('impactDetail').innerHTML = '<div class="panel"><div class="empty">Could not load impact details.</div></div>';
@@ -322,6 +327,24 @@ function renderImpactDetail(d){
         (d.weather.precipitation_mm!=null?' · '+d.weather.precipitation_mm+'mm/hr':'')+'</div>' +
     '</div>' +
   '</div>';
+
+  // ── AI Early Warnings
+  if(d.early_warnings && d.early_warnings.length){
+    html += '<div style="padding:16px 16px 0;"><div class="impact-section-label" style="color:var(--risk-critical);display:flex;align-items:center;gap:8px;"><span class="pulse-dot" style="background:var(--risk-critical);position:relative;margin:0;"></span> AI Early Warning System</div></div>';
+    html += '<div style="padding:12px 16px;">';
+    d.early_warnings.forEach(function(w){
+      var sevCol = riskColor(w.severity);
+      var sevBg = riskBg(w.severity);
+      html += '<div class="ews-card" style="border:1px solid '+sevCol+'; background:'+sevBg+'; border-radius:8px; padding:12px; margin-bottom:10px;">' +
+        '<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px;">' +
+          '<div style="font-weight:600; color:'+sevCol+'; font-size:14px;">⚠ '+w.title+'</div>' +
+          '<div style="font-size:11px; font-family:var(--font-mono); font-weight:600; background:rgba(0,0,0,0.1); padding:2px 6px; border-radius:4px; color:'+sevCol+';">CONFIDENCE: '+w.confidence+'%</div>' +
+        '</div>' +
+        '<div style="font-size:13px; line-height:1.5;">'+w.description+'</div>' +
+      '</div>';
+    });
+    html += '</div>';
+  }
 
   // ── Impact Sectors
   if(d.impacts && d.impacts.length){

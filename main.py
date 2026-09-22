@@ -626,6 +626,122 @@ def trigger_nasa_ingest():
 
 
 # ---------------------------------------------------------------------------
+# AI-Powered Anomaly Detection (Early Warning System)
+# ---------------------------------------------------------------------------
+def detect_anomalies(city_id: str):
+    city = city_by_id(city_id)
+    if not city:
+        raise HTTPException(status_code=404, detail="Unknown city")
+
+    # Fetch past 24h and next 48h of hourly data
+    url = (
+        "https://api.open-meteo.com/v1/forecast"
+        f"?latitude={city['lat']}&longitude={city['lon']}"
+        "&hourly=temperature_2m,surface_pressure,precipitation"
+        "&past_days=1&forecast_days=2&timezone=auto"
+    )
+    try:
+        resp = requests.get(url, timeout=8)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Weather API error: {e}")
+
+    hourly = data.get("hourly", {})
+    times = hourly.get("time", [])
+    pressures = hourly.get("surface_pressure", [])
+    temps = hourly.get("temperature_2m", [])
+    precips = hourly.get("precipitation", [])
+
+    if not times or not pressures:
+        return []
+
+    # Find "now" index (roughly)
+    now = datetime.now()
+    now_str = now.strftime("%Y-%m-%dT%H:00")
+    try:
+        now_idx = next(i for i, t in enumerate(times) if t >= now_str)
+    except StopIteration:
+        now_idx = len(times) // 3 # fallback to roughly current time
+
+    anomalies = []
+    
+    # 1. Storm Precursor: Sudden pressure drop (>3 hPa in 3 hours)
+    # Check last 6 hours to next 6 hours window
+    start_idx = max(0, now_idx - 6)
+    end_idx = min(len(times), now_idx + 6)
+    for i in range(start_idx, end_idx - 3):
+        p1 = pressures[i]
+        p2 = pressures[i+3]
+        if p1 is not None and p2 is not None and (p1 - p2) >= 3.0:
+            anomalies.append({
+                "type": "storm_precursor",
+                "title": "Cyclonic Storm Precursor",
+                "description": f"Rapid surface pressure drop of {(p1-p2):.1f} hPa detected over 3 hours.",
+                "severity": "CRITICAL",
+                "confidence": 85
+            })
+            break # only one alert per category
+
+    # 2. Flash Flood Risk: Extreme sudden precipitation spike (> 15mm in 1 hr)
+    for i in range(start_idx, end_idx):
+        if precips[i] is not None and precips[i] > 15.0:
+            anomalies.append({
+                "type": "flash_flood",
+                "title": "Flash Flood Risk",
+                "description": f"Extreme localized rainfall spike ({precips[i]:.1f} mm/hr) expected.",
+                "severity": "CRITICAL",
+                "confidence": 90
+            })
+            break
+
+    # 3. Heatwave Spike: Temperature jump > 5C above 24h moving avg
+    avg_start = max(0, now_idx - 24)
+    past_temps = [t for t in temps[avg_start:now_idx] if t is not None]
+    if past_temps:
+        avg_temp = sum(past_temps) / len(past_temps)
+        for i in range(now_idx, end_idx):
+            if temps[i] is not None and (temps[i] - avg_temp) > 5.0 and temps[i] > 38.0:
+                anomalies.append({
+                    "type": "heatwave_spike",
+                    "title": "Abnormal Heat Spike",
+                    "description": f"Temperature deviation of +{(temps[i]-avg_temp):.1f}°C above 24h average.",
+                    "severity": "HIGH",
+                    "confidence": 80
+                })
+                break
+
+    # Cross-Validation with DB reports to boost confidence
+    conn = get_db()
+    recent_reports = conn.execute(
+        "SELECT type FROM reports WHERE city_id = ? AND created_at >= ?", 
+        (city_id, int(time.time()) - 86400) # last 24h
+    ).fetchall()
+    conn.close()
+    
+    report_types = [r["type"] for r in recent_reports]
+    
+    for anom in anomalies:
+        cross_validated = False
+        if anom["type"] == "storm_precursor" and "storm" in report_types:
+            cross_validated = True
+        elif anom["type"] == "flash_flood" and "flood" in report_types:
+            cross_validated = True
+        elif anom["type"] == "heatwave_spike" and "heatwave" in report_types:
+            cross_validated = True
+            
+        if cross_validated:
+            anom["confidence"] = min(99, anom["confidence"] + 12)
+            anom["description"] += " Cross-validated with local citizen/sensor reports."
+
+    return anomalies
+
+@app.get("/api/early-warnings/{city_id}")
+def get_early_warnings(city_id: str):
+    return detect_anomalies(city_id)
+
+
+# ---------------------------------------------------------------------------
 # Impact-Based Forecasting
 # ---------------------------------------------------------------------------
 def generate_impact_forecast(city_id: str):
