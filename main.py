@@ -626,6 +626,144 @@ def trigger_nasa_ingest():
 
 
 # ---------------------------------------------------------------------------
+# Impact-Based Forecasting
+# ---------------------------------------------------------------------------
+def generate_impact_forecast(city_id: str):
+    city = city_by_id(city_id)
+    if not city:
+        raise HTTPException(status_code=404, detail="Unknown city")
+    
+    ground_truth = fetch_ground_truth(city_id)
+    condition = ground_truth["condition"]
+    temp = ground_truth.get("temperature_c", 0)
+    precip = ground_truth.get("precipitation_mm") or 0
+    
+    risk_level = "LOW"
+    risk_score = 10
+    impacts = []
+    vulnerable_infrastructure = []
+    alerts = []
+    
+    # Calculate population scale factor based on city
+    pop_scale = {
+        "mumbai": 1.0, "delhi": 1.2, "bengaluru": 0.8,
+        "chennai": 0.7, "kolkata": 0.9, "hyderabad": 0.8,
+        "jaipur": 0.3, "patna": 0.2, "guwahati": 0.1,
+        "kochi": 0.1, "bhubaneswar": 0.1
+    }.get(city_id, 0.5)
+    
+    if condition == "flood":
+        risk_level = "HIGH" if precip < 30 else "CRITICAL"
+        risk_score = min(100, 60 + int(precip))
+        impacts = [
+            {"sector": "Transport", "icon": "🚗", "severity": "HIGH", "description": "Major road flooding likely on low-lying routes. Expect 2-4 hour delays.", "advisory": "Avoid non-essential travel. Use elevated routes."},
+            {"sector": "Power & Utilities", "icon": "⚡", "severity": "MODERATE", "description": "Potential power outages in waterlogged areas.", "advisory": "Charge devices. Report outages to local utility."},
+            {"sector": "Health", "icon": "🏥", "severity": "MODERATE", "description": "Risk of waterborne diseases in flood-affected areas.", "advisory": "Drink boiled/filtered water only. Avoid wading through stagnant water."},
+            {"sector": "Education", "icon": "🏫", "severity": "HIGH", "description": "Schools in low-lying areas may need closure.", "advisory": "Check with local authorities before sending children to school."},
+            {"sector": "Agriculture", "icon": "🌾", "severity": "HIGH", "description": "Crop damage likely in low-lying fields. Soil erosion risk.", "advisory": "Move harvested produce to higher ground. Drain excess water from fields."}
+        ]
+        vulnerable_infrastructure = [
+            {"type": "Bridges & Subways", "count_at_risk": max(1, int(15 * pop_scale)), "risk": "HIGH"},
+            {"type": "Hospitals & Clinics", "count_at_risk": max(1, int(5 * pop_scale)), "risk": "MODERATE"},
+            {"type": "Schools", "count_at_risk": max(1, int(25 * pop_scale)), "risk": "HIGH"},
+            {"type": "Power Substations", "count_at_risk": max(1, int(8 * pop_scale)), "risk": "MODERATE"}
+        ]
+        alerts.append({
+            "level": "WARNING" if risk_level == "HIGH" else "CRITICAL",
+            "message": "Heavy rainfall expected to continue for next 6 hours. Stay indoors.",
+            "issued_at": int(time.time()),
+            "valid_until": int(time.time()) + 21600
+        })
+    elif condition == "storm":
+        risk_level = "HIGH"
+        risk_score = 75
+        impacts = [
+            {"sector": "Power & Utilities", "icon": "⚡", "severity": "HIGH", "description": "High wind may bring down power lines.", "advisory": "Prepare for outages."},
+            {"sector": "Transport", "icon": "🚗", "severity": "HIGH", "description": "Fallen trees may block roads.", "advisory": "Drive with caution."},
+            {"sector": "Health", "icon": "🏥", "severity": "MODERATE", "description": "Risk of injuries from flying debris.", "advisory": "Stay indoors during high winds."}
+        ]
+        vulnerable_infrastructure = [
+            {"type": "Power Lines (km)", "count_at_risk": max(1, int(120 * pop_scale)), "risk": "HIGH"},
+            {"type": "Communication Towers", "count_at_risk": max(1, int(10 * pop_scale)), "risk": "MODERATE"}
+        ]
+        alerts.append({
+            "level": "WARNING",
+            "message": "Strong winds and heavy rain expected.",
+            "issued_at": int(time.time()),
+            "valid_until": int(time.time()) + 14400
+        })
+    elif condition == "heatwave":
+        risk_level = "HIGH" if temp < 45 else "CRITICAL"
+        risk_score = min(100, 50 + int((temp - 40) * 10) if temp else 80)
+        impacts = [
+            {"sector": "Health", "icon": "🏥", "severity": "HIGH", "description": "High risk of heatstroke.", "advisory": "Stay hydrated and indoors."},
+            {"sector": "Agriculture", "icon": "🌾", "severity": "HIGH", "description": "Heat stress on crops.", "advisory": "Increase irrigation."},
+            {"sector": "Power & Utilities", "icon": "⚡", "severity": "MODERATE", "description": "Grid strain from AC load.", "advisory": "Conserve energy during peak hours."}
+        ]
+        vulnerable_infrastructure = [
+            {"type": "Hospitals & Clinics", "count_at_risk": max(1, int(20 * pop_scale)), "risk": "HIGH"},
+            {"type": "Power Substations", "count_at_risk": max(1, int(12 * pop_scale)), "risk": "HIGH"}
+        ]
+        alerts.append({
+            "level": "WARNING",
+            "message": "Severe heat wave conditions. Avoid outdoor activities.",
+            "issued_at": int(time.time()),
+            "valid_until": int(time.time()) + 43200
+        })
+    elif condition == "fog":
+        risk_level = "MODERATE"
+        risk_score = 40
+        impacts = [
+            {"sector": "Transport", "icon": "🚗", "severity": "HIGH", "description": "Very low visibility on roads.", "advisory": "Use fog lights, drive slowly."}
+        ]
+        vulnerable_infrastructure = [
+            {"type": "Highways (km)", "count_at_risk": max(1, int(50 * pop_scale)), "risk": "HIGH"},
+            {"type": "Airports", "count_at_risk": 1, "risk": "HIGH"}
+        ]
+        alerts.append({
+            "level": "ADVISORY",
+            "message": "Dense fog reducing visibility.",
+            "issued_at": int(time.time()),
+            "valid_until": int(time.time()) + 10800
+        })
+    else:  # clear or dust
+        risk_level = "LOW"
+        risk_score = 15
+        impacts = [
+            {"sector": "General", "icon": "☀️", "severity": "LOW", "description": "Normal conditions.", "advisory": "No special advisories."}
+        ]
+        
+    # Scale population affected
+    base_pop = 1000000 * pop_scale
+    affected_pop = int(base_pop * (risk_score / 100))
+        
+    return {
+        "city_id": city_id,
+        "city_name": city["name"],
+        "timestamp": int(time.time()),
+        "weather": ground_truth,
+        "risk_level": risk_level,
+        "risk_score": risk_score,
+        "impacts": impacts,
+        "vulnerable_infrastructure": vulnerable_infrastructure,
+        "population_affected": {
+            "estimated": affected_pop,
+            "evacuation_recommended": risk_level == "CRITICAL",
+            "shelter_advisory": risk_level in ["HIGH", "CRITICAL"]
+        },
+        "alerts": alerts
+    }
+
+@app.get("/api/impact-forecast")
+def get_all_impact_forecasts():
+    return [generate_impact_forecast(city["id"]) for city in CITIES]
+
+@app.get("/api/impact-forecast/{city_id}")
+def get_impact_forecast(city_id: str):
+    return generate_impact_forecast(city_id)
+
+
+# ---------------------------------------------------------------------------
 # Startup + static frontend
 # ---------------------------------------------------------------------------
 init_db()
