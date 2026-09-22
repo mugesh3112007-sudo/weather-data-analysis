@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -72,6 +71,16 @@
   .result.ok{background:var(--verified-dim);} .result.bad{background:var(--flagged-dim);}
   .result h3{margin:0 0 6px;font-size:13.5px;} .result p{margin:0;font-size:12.5px;color:var(--text-dim);line-height:1.5;}
   .empty{padding:24px;color:var(--text-faint);font-size:12.5px;}
+
+  .source-list{padding:6px 0;}
+  .source-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;padding:14px 16px;border-bottom:1px solid var(--line);}
+  .source-row:last-child{border-bottom:none;}
+  .source-label{flex:0 0 240px;font-weight:600;font-size:12.5px;color:var(--text);}
+  .source-value{flex:1;min-width:180px;font-size:12px;color:var(--text-dim);font-family:var(--font-mono);}
+  .source-value a{color:var(--saffron);text-decoration:none;}
+  .source-value a:hover{text-decoration:underline;}
+  .source-status{flex:0 0 150px;text-align:right;}
+  @media (max-width:700px){ .source-label{flex-basis:100%;} .source-status{flex-basis:100%;text-align:left;} }
 </style>
 </head>
 <body>
@@ -85,6 +94,7 @@
     <button data-tab="map" class="active">Map</button>
     <button data-tab="feed">Report feed</button>
     <button data-tab="submit">Submit report</button>
+    <button data-tab="sources">Sources</button>
   </nav>
   <div id="content"></div>
 </div>
@@ -94,7 +104,7 @@
 // point this at your Render backend's URL, e.g.:
 //   var API_BASE = 'https://weather-data-analysis.onrender.com';
 // Leave it as '' when running both locally on the same machine.
-var API_BASE = 'https://weather-data-analysis-63zg.onrender.com';
+var API_BASE = '';
 
 var EVENT_LABELS = { flood:'Flood', storm:'Thunderstorm / heavy rain', heatwave:'Heatwave', fog:'Fog', clear:'Clear conditions' };
 var CONDITION_COLOR = {
@@ -126,6 +136,7 @@ document.querySelectorAll('nav button').forEach(function(b){
 function render(){
   if (currentTab === 'map') renderMapTab();
   else if (currentTab === 'feed') renderFeed();
+  else if (currentTab === 'sources') renderSources();
   else renderSubmit();
 }
 
@@ -228,6 +239,49 @@ function renderFeed(){
         '<div class="feed-meta"><span>' + r.source + '</span><span>' + r.city_id + '</span><span>' + when + '</span></div>' +
         '</div></div>';
     }).join('');
+  });
+}
+
+var SOURCES = [
+  ['Live deployed prototype', 'weather-data-analysis-steel.vercel.app', null],
+  ['Source code (GitHub)', 'github.com/mugesh3112007-sudo/weather-data-analysis', 'https://github.com/mugesh3112007-sudo/weather-data-analysis'],
+  ['Alert format standard', 'OASIS Common Alerting Protocol (CAP) — docs.oasis-open.org/emergency/cap', 'https://docs.oasis-open.org/emergency/cap']
+];
+
+function renderSources(){
+  el('content').innerHTML =
+    '<div class="panel"><div class="panel-head"><h2>Data sources &amp; credits</h2><span class="meta">transparency</span></div>' +
+    '<div class="source-list" id="sourceList"><div class="empty">Loading…</div></div></div>';
+
+  fetch(API_BASE + '/api/source-status').then(function(r){ return r.json(); }).then(function(data){
+    var liveRows = data.sources.map(function(s){
+      var valueHtml = '<a href="' + s.url + '" target="_blank" rel="noopener">' + s.detail + '</a>';
+      var statusHtml = s.active
+        ? '<span class="status-tag status-verified"><i></i>Active</span>'
+        : '<span class="status-tag status-flagged"><i></i>Not yet configured</span>';
+      return '<div class="source-row">' +
+        '<div class="source-label">' + s.name + '</div>' +
+        '<div class="source-value">' + valueHtml + '</div>' +
+        '<div class="source-status">' + statusHtml + '</div>' +
+      '</div>';
+    }).join('');
+
+    var staticRows = SOURCES.map(function(s){
+      var valueHtml = s[2] ? '<a href="' + s[2] + '" target="_blank" rel="noopener">' + s[1] + '</a>' : s[1];
+      return '<div class="source-row">' +
+        '<div class="source-label">' + s[0] + '</div>' +
+        '<div class="source-value">' + valueHtml + '</div>' +
+        '<div class="source-status"></div>' +
+      '</div>';
+    }).join('');
+
+    el('sourceList').innerHTML = liveRows + staticRows;
+  }).catch(function(){
+    var staticRows = SOURCES.map(function(s){
+      var valueHtml = s[2] ? '<a href="' + s[2] + '" target="_blank" rel="noopener">' + s[1] + '</a>' : s[1];
+      return '<div class="source-row"><div class="source-label">' + s[0] + '</div><div class="source-value">' + valueHtml + '</div></div>';
+    }).join('');
+    el('sourceList').innerHTML = staticRows;
   });
 }
 

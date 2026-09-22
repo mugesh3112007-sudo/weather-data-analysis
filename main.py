@@ -442,6 +442,40 @@ def get_cities():
     return CITIES
 
 
+@app.get("/api/source-status")
+def get_source_status():
+    """
+    Reports which data sources are actually active right now, so the
+    frontend can show a true "Active" / "Not configured" state instead of
+    just listing every source as if it were contributing data.
+    """
+    return {
+        "sources": [
+            {
+                "id": "open-meteo",
+                "name": "Live weather ground-truth data",
+                "detail": "Open-Meteo API — open-meteo.com",
+                "url": "https://open-meteo.com",
+                "active": True,
+            },
+            {
+                "id": "nasa-eonet",
+                "name": "Satellite-observed event data",
+                "detail": "NASA EONET API — eonet.gsfc.nasa.gov",
+                "url": "https://eonet.gsfc.nasa.gov",
+                "active": True,
+            },
+            {
+                "id": "reddit",
+                "name": "Social report ingestion",
+                "detail": "Reddit API (PRAW) — praw.readthedocs.io",
+                "url": "https://praw.readthedocs.io",
+                "active": get_reddit_client() is not None,
+            },
+        ]
+    }
+
+
 @app.get("/api/ground-truth/{city_id}")
 def get_ground_truth(city_id: str):
     return fetch_ground_truth(city_id)
