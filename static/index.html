@@ -858,15 +858,73 @@ nav button .tab-icon { font-size: 14px; }
   .map-search-wrap { padding: 10px 14px; }
   .map-search-icon { left: 26px; }
 }
+
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#060b18">
+<style>
+/* Light Theme Overrides */
+[data-theme="light"] {
+  --bg-deep: #f8fafc;
+  --bg-base: #f1f5f9;
+  --bg-panel: rgba(255, 255, 255, 0.85);
+  --bg-panel-solid: #ffffff;
+  --bg-elevated: rgba(255, 255, 255, 0.95);
+  --bg-hover: rgba(241, 245, 249, 0.8);
+  --border: rgba(0, 0, 0, 0.1);
+  --border-strong: rgba(0, 0, 0, 0.15);
+  --text: #0f172a;
+  --text-dim: #475569;
+  --text-faint: #64748b;
+}
+
+/* Share Button & Icons */
+.share-btn {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 4px 8px;
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all var(--dur) var(--ease);
+}
+.share-btn:hover { background: var(--bg-hover); color: var(--text); }
+.sticky-alert {
+  position: sticky; top: 0; z-index: 1000;
+  background: var(--risk-critical);
+  color: #fff; text-align: center; padding: 10px;
+  font-weight: 600; font-size: 13px;
+  display: none; box-shadow: 0 4px 12px rgba(244, 63, 94, 0.3);
+}
+.sticky-alert.show { display: block; animation: slideDown 0.3s ease; }
+@keyframes slideDown { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+
+/* SVG Icons */
+.weather-icon { width: 24px; height: 24px; display: inline-block; vertical-align: middle; margin-right: 6px; }
+.theme-toggle { background: none; border: none; font-size: 18px; cursor: pointer; color: var(--text-dim); }
+.header-top { display: flex; justify-content: space-between; align-items: flex-start; }
+.timer { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); margin-left: 10px; }
+.sparkline { width: 100%; height: 30px; margin-top: 8px; }
+.chart-container { margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border); }
+.forecast-day { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
+</style>
 </style>
 </head>
 <body>
+
+<div id="stickyAlert" class="sticky-alert">🚨 CRITICAL RISK WARNING: Evacuation recommended for one or more cities.</div>
 <div class="wrap">
   <header>
-    <div class="badge-live"><i></i>LIVE — pulling real weather data from Open-Meteo</div>
-    <h1>Weather Data Analysis</h1>
+    <div class="header-top">
+      <div>
+        <div class="badge-live"><i></i>LIVE — pulling real weather data <span id="refreshTimer" class="timer">Update in 60s</span></div>
+        <h1>Weather Data Analysis</h1>
+      </div>
+      <button class="theme-toggle" id="themeToggle" title="Toggle Theme">🌙</button>
+    </div>
     <p>This runs on a real backend. Map and city conditions below are fetched live; reports you submit are checked against that live data and stored in a real database.</p>
   </header>
+
   <nav id="mainNav">
     <button data-tab="impact" class="active"><span class="tab-icon">🛡️</span>Impact Forecast</button>
     <button data-tab="map"><span class="tab-icon">🗺️</span>Map</button>
@@ -888,6 +946,90 @@ var CONDITION_COLOR = {
   flood: 'var(--flood)', storm: 'var(--storm)', heatwave: 'var(--heatwave)',
   fog: 'var(--fog)', clear: 'var(--clear)'
 };
+
+// ═══════════════════════════════════════════════════════════════
+// NEW FEATURES JS (Theme, Timer, Share, PWA, Icons, Sparkline, Chart)
+// ═══════════════════════════════════════════════════════════════
+
+// PWA Service Worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/static/sw.js').catch(err => console.error("SW reg failed", err));
+}
+
+// Theme Toggle
+var themeToggle = document.getElementById('themeToggle');
+var currentTheme = localStorage.getItem('theme') || 'dark';
+document.documentElement.setAttribute('data-theme', currentTheme);
+themeToggle.textContent = currentTheme === 'light' ? '☀️' : '🌙';
+
+themeToggle.addEventListener('click', function() {
+  currentTheme = currentTheme === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', currentTheme);
+  localStorage.setItem('theme', currentTheme);
+  themeToggle.textContent = currentTheme === 'light' ? '☀️' : '🌙';
+  if(currentTab === 'map') renderMapTab(); // re-render map to update tile colors if necessary
+});
+
+// Weather Icons (SVG)
+function getWeatherIcon(condition) {
+  var svg = '';
+  if (condition === 'clear') svg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>';
+  else if (condition === 'heatwave') svg = '<svg viewBox="0 0 24 24" fill="none" stroke="red" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>';
+  else if (condition === 'storm') svg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/><path d="M13 14l-2 3h4l-2 3"/></svg>';
+  else if (condition === 'flood') svg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12c-2-2-4-2-6 0s-4 2-6 0-4-2-6 0"/><path d="M22 18c-2-2-4-2-6 0s-4 2-6 0-4-2-6 0"/><path d="M12 2v6"/></svg>';
+  else if (condition === 'fog') svg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 18h18M3 6h18"/></svg>';
+  else svg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/></svg>';
+  return '<span class="weather-icon" style="color:var(--'+condition+')">' + svg + '</span>';
+}
+
+// Sparkline Generator
+function createSparkline(data) {
+  var min = Math.min(...data), max = Math.max(...data);
+  var range = max - min || 1;
+  var pts = data.map((d, i) => `${(i / (data.length - 1)) * 100},${100 - ((d - min) / range) * 100}`).join(' ');
+  return `<svg class="sparkline" viewBox="0 0 100 100" preserveAspectRatio="none">
+    <polyline fill="none" stroke="var(--accent)" stroke-width="4" points="${pts}" />
+  </svg>`;
+}
+
+// 7-day forecast chart generator
+function createForecastChart(daily) {
+  var html = '<div class="chart-container"><h4>7-Day Forecast</h4>';
+  for(var i=0; i<7; i++) {
+    var date = new Date(daily.time[i]).toLocaleDateString('en-US', {weekday:'short'});
+    var min = daily.temperature_2m_min[i];
+    var max = daily.temperature_2m_max[i];
+    html += `<div class="forecast-day"><span>${date}</span><span>${min}° - ${max}°</span></div>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+// Share function
+window.shareCity = function(cityId, cityName, risk) {
+  var text = `Weather Alert for ${cityName}: ${risk} RISK. Check live data on Weather Data Analysis!`;
+  if (navigator.share) {
+    navigator.share({ title: 'Weather Alert', text: text, url: window.location.href })
+      .catch(console.error);
+  } else {
+    navigator.clipboard.writeText(text + ' ' + window.location.href);
+    alert('Copied to clipboard!');
+  }
+}
+
+// Auto-Refresh Timer
+var countdown = 60;
+var timerEl = document.getElementById('refreshTimer');
+setInterval(function() {
+  countdown--;
+  if (countdown <= 0) {
+    countdown = 60;
+    render(); // refresh current tab
+  }
+  timerEl.textContent = 'Update in ' + countdown + 's';
+}, 1000);
+
+
 var currentTab = 'impact';
 var citiesCache = null;
 var leafletMap = null;
@@ -981,6 +1123,12 @@ function renderImpact(){
   fetch(API_BASE + '/api/impact-forecast').then(function(r){ return r.json(); }).then(function(data){
     impactCache = data;
     renderImpactOverview(data);
+
+  var hasCritical = data.some(function(c){ return c.risk_level === 'CRITICAL' || c.risk_level === 'HIGH'; });
+  var alertEl = document.getElementById('stickyAlert');
+  if (hasCritical) alertEl.classList.add('show');
+  else alertEl.classList.remove('show');
+
     var highest = data.reduce(function(a,b){ return a.risk_score > b.risk_score ? a : b; }, data[0]);
     if(highest) selectImpactCity(highest.city_id);
   }).catch(function(){
@@ -1011,7 +1159,7 @@ function renderImpactOverview(data){
         '<span class="crc-score" style="color:'+riskColor(c.risk_level)+'">'+c.risk_score+'</span>' +
         '<span class="crc-badge" style="background:'+riskBg(c.risk_level)+';color:'+riskColor(c.risk_level)+'">'+c.risk_level+'</span>' +
       '</div>' +
-      '<div class="crc-cond">'+c.weather.condition_label+' · '+(c.weather.temperature_c!=null?c.weather.temperature_c+'°C':'—')+'</div>' +
+      '<div class="crc-cond">'+getWeatherIcon(c.weather.condition)+c.weather.condition_label+' · '+(c.weather.temperature_c!=null?c.weather.temperature_c+'°C':'—')+'</div>' +
     '</div>';
   });
   html += '</div>';
@@ -1071,7 +1219,9 @@ function renderImpactDetail(d){
       '</div>' +
     '</div>' +
     '<div class="risk-info">' +
-      '<div class="ri-city">'+d.city_name+' '+pulseDot+'</div>' +
+      
+      '<div class="ri-city">'+d.city_name+' '+pulseDot+' <button class="share-btn" onclick="shareCity(\''+d.city_id+'\', \''+d.city_name+'\', \''+d.risk_level+'\')">Share</button></div>' +
+
       '<span class="ri-badge" style="background:'+riskBg(d.risk_level)+';color:'+riskColor(d.risk_level)+'">'+d.risk_level+' RISK</span>' +
       '<div class="ri-cond">'+d.weather.condition_label+' · '+(d.weather.temperature_c!=null?d.weather.temperature_c+'°C':'—')+
         (d.weather.precipitation_mm!=null?' · '+d.weather.precipitation_mm+'mm/hr':'')+'</div>' +
@@ -1214,21 +1364,35 @@ function renderMapTab(){
       return '<div class="city-card" id="card-'+c.id+'" style="animation-delay:'+(i*0.04)+'s"><div class="name">'+c.name+'</div><div class="loading">fetching…</div></div>';
     }).join('') + '</div>';
 
+    
     cities.forEach(function(c){
-      fetch(API_BASE + '/api/ground-truth/' + c.id).then(function(r){ return r.json(); }).then(function(g){
+      var url = 'https://api.open-meteo.com/v1/forecast?latitude='+c.lat+'&longitude='+c.lon+'&current_weather=true&hourly=temperature_2m,precipitation&daily=temperature_2m_max,temperature_2m_min&timezone=auto';
+      fetch(url).then(r=>r.json()).then(data => {
+        var g = {
+          condition: classifyWeatherCode(data.current_weather.weathercode, data.current_weather.temperature, data.hourly.precipitation[0] || null),
+          condition_label: WEATHER_CODE_LABELS[data.current_weather.weathercode] || 'Unknown',
+          temperature_c: data.current_weather.temperature,
+          precipitation_mm: data.hourly.precipitation[0] || null
+        };
         var card = el('card-' + c.id);
         if (card){
+          var recentTemps = data.hourly.temperature_2m.slice(0, 12); // next 12 hours
           card.innerHTML =
             '<div class="name">' + c.name + '</div>' +
-            '<div class="cond">' + g.condition_label + '</div>' +
+            '<div class="cond">' + getWeatherIcon(g.condition) + g.condition_label + '</div>' +
             '<div class="cond">' + (g.temperature_c != null ? g.temperature_c + '°C' : '—') +
-            (g.precipitation_mm != null ? ' · ' + g.precipitation_mm + 'mm/hr' : '') + '</div>';
+            (g.precipitation_mm != null ? ' · ' + g.precipitation_mm + 'mm/hr' : '') + '</div>' +
+            createSparkline(recentTemps) +
+            createForecastChart(data.daily);
         }
         colorMarker(c.id, g);
-      }).catch(function(){
+      }).catch(function(e){
+        console.error(e);
         var card = el('card-' + c.id);
         if (card) card.innerHTML = '<div class="name">' + c.name + '</div><div class="loading">unavailable</div>';
       });
+    });
+
     });
   });
 }
