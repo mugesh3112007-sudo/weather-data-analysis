@@ -3,153 +3,777 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Weather Data Analysis — Live</title>
+<title>Weather Data Analysis — Live Intelligence</title>
+<meta name="description" content="Real-time weather data analysis platform with impact-based forecasting, AI early warnings, and live ground-truth verification for Indian cities.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>
-  :root{
-    --ink:#0D1F1B; --panel:#12302A; --panel-2:#183A32; --panel-3:#1E463C;
-    --line: rgba(231,240,234,0.09); --line-strong: rgba(231,240,234,0.18);
-    --text:#E7F0EA; --text-dim:#93B3A5; --text-faint:#5D7A6E;
-    --saffron:#E0942F; --saffron-dim: rgba(224,148,47,0.16);
-    --verified:#4FAE7E; --verified-dim: rgba(79,174,126,0.14);
-    --flagged:#DC6A50; --flagged-dim: rgba(220,106,80,0.14);
-    --pending:#6FA6C9; --pending-dim: rgba(111,166,201,0.14);
-    --flood:#4FA0DC; --heatwave:#E0942F; --fog:#93B3A5;
-    --font-ui:'IBM Plex Sans',system-ui,sans-serif; --font-mono:'IBM Plex Mono',ui-monospace,monospace;
-    --risk-low:#4FAE7E; --risk-moderate:#E0942F; --risk-high:#DC6A50; --risk-critical:#E04545;
-    --risk-low-dim:rgba(79,174,126,0.14); --risk-moderate-dim:rgba(224,148,47,0.14);
-    --risk-high-dim:rgba(220,106,80,0.14); --risk-critical-dim:rgba(224,69,69,0.14);
-  }
-  *{box-sizing:border-box;} body{margin:0;background:var(--ink);color:var(--text);font-family:var(--font-ui);}
-  .wrap{max-width:1040px;margin:0 auto;padding:32px 22px 70px;}
-  header{margin-bottom:26px;}
-  header h1{font-size:22px;margin:0 0 6px;}
-  header p{margin:0;color:var(--text-dim);font-size:13.5px;max-width:640px;line-height:1.5;}
-  .badge-live{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px;color:var(--verified);margin-bottom:10px;}
-  .badge-live i{width:7px;height:7px;border-radius:50%;background:var(--verified);}
-  nav{display:flex;gap:8px;margin-bottom:22px;border-bottom:1px solid var(--line);}
-  nav button{background:none;border:none;color:var(--text-faint);font-family:var(--font-ui);font-size:13px;padding:10px 4px;cursor:pointer;border-bottom:2px solid transparent;margin-right:18px;}
-  nav button.active{color:var(--text);border-bottom-color:var(--saffron);}
-  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:18px;}
-  .panel-head{padding:13px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;}
-  .panel-head h2{font-size:13px;font-weight:600;margin:0;}
-  .panel-head .meta{font-family:var(--font-mono);font-size:10.5px;color:var(--text-faint);}
+/* ═══════════════════════════════════════════════════════════════
+   DESIGN TOKENS
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  /* Background layers */
+  --bg-deep: #060b18;
+  --bg-base: #0c1224;
+  --bg-panel: rgba(14, 22, 42, 0.65);
+  --bg-panel-solid: #0e162a;
+  --bg-elevated: rgba(20, 30, 56, 0.55);
+  --bg-hover: rgba(30, 44, 76, 0.45);
 
-  #mapEl{ height:440px; width:100%; background:var(--panel-2); }
-  .leaflet-popup-content-wrapper{ background:var(--panel-3); color:var(--text); border-radius:8px; }
-  .leaflet-popup-content{ font-family:var(--font-ui); font-size:12.5px; margin:10px 12px; }
-  .leaflet-popup-tip{ background:var(--panel-3); }
-  .leaflet-container{ font-family:var(--font-ui); }
+  /* Borders */
+  --border: rgba(100, 140, 200, 0.1);
+  --border-strong: rgba(100, 140, 200, 0.2);
+  --border-glow: rgba(100, 160, 255, 0.15);
 
-  .legend{display:flex;gap:14px;padding:12px 16px;flex-wrap:wrap;border-top:1px solid var(--line);}
-  .legend span{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-dim);font-family:var(--font-mono);}
-  .legend i{width:8px;height:8px;border-radius:50%;display:inline-block;}
+  /* Text */
+  --text: #e8ecf4;
+  --text-dim: #8494b2;
+  --text-faint: #4d5d7a;
 
-  .city-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;padding:16px;}
-  .city-card{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:12px;}
-  .city-card .name{font-weight:600;font-size:13.5px;margin-bottom:4px;}
-  .city-card .cond{font-family:var(--font-mono);font-size:11.5px;color:var(--text-dim);margin-top:6px;}
-  .city-card .loading{color:var(--text-faint);font-size:11.5px;font-family:var(--font-mono);}
+  /* Accents */
+  --accent: #f0a030;
+  --accent-dim: rgba(240, 160, 48, 0.14);
+  --accent-glow: rgba(240, 160, 48, 0.25);
 
-  .feed-item{display:flex;gap:12px;padding:13px 16px;border-left:3px solid var(--line-strong);border-bottom:1px solid var(--line);}
-  .feed-thumb{width:56px;height:56px;object-fit:cover;border-radius:6px;flex:none;background:var(--panel-2);}
-  .feed-item.status-verified{border-left-color:var(--verified);}
-  .feed-item.status-flagged{border-left-color:var(--flagged);}
-  .feed-item.status-pending{border-left-color:var(--pending);}
-  .feed-desc{margin:0 0 5px;font-size:13px;}
-  .feed-meta{font-family:var(--font-mono);font-size:10.8px;color:var(--text-faint);display:flex;gap:10px;flex-wrap:wrap;}
-  .status-tag{font-family:var(--font-mono);font-size:10.2px;}
-  .status-tag.status-verified{color:var(--verified);} .status-tag.status-flagged{color:var(--flagged);} .status-tag.status-pending{color:var(--pending);}
+  --verified: #34d399;
+  --verified-dim: rgba(52, 211, 153, 0.12);
+  --flagged: #f87171;
+  --flagged-dim: rgba(248, 113, 113, 0.12);
+  --pending: #60a5fa;
+  --pending-dim: rgba(96, 165, 250, 0.12);
 
-  .form-panel{padding:18px;max-width:560px;}
-  .field{margin-bottom:16px;} .field label{display:block;font-size:12px;color:var(--text-dim);margin-bottom:6px;}
-  .field input,.field select,.field textarea{width:100%;background:var(--panel-2);border:1px solid var(--line-strong);border-radius:7px;padding:10px 11px;color:var(--text);font-family:var(--font-ui);font-size:13.5px;}
-  .field textarea{min-height:74px;resize:vertical;}
-  .file-drop{border:1px dashed var(--line-strong);border-radius:8px;padding:16px;text-align:center;color:var(--text-faint);font-size:12px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;}
-  .file-drop:hover{border-color:var(--saffron);color:var(--text-dim);}
-  .file-drop img{max-height:100px;border-radius:6px;margin-top:6px;}
-  .hidden{display:none !important;}
-  .btn{border:none;border-radius:8px;padding:11px 18px;font-size:13.5px;font-weight:600;cursor:pointer;background:var(--saffron);color:#1A1005;}
-  .btn:disabled{opacity:0.5;cursor:default;}
-  .result{margin-top:16px;padding:14px;border-radius:8px;display:none;}
-  .result.show{display:block;}
-  .result.ok{background:var(--verified-dim);} .result.bad{background:var(--flagged-dim);}
-  .result h3{margin:0 0 6px;font-size:13.5px;} .result p{margin:0;font-size:12.5px;color:var(--text-dim);line-height:1.5;}
-  .empty{padding:24px;color:var(--text-faint);font-size:12.5px;}
+  /* Conditions */
+  --flood: #38bdf8;
+  --storm: #f87171;
+  --heatwave: #fbbf24;
+  --fog: #94a3b8;
+  --clear: #34d399;
 
-  .source-list{padding:6px 0;}
-  .source-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;padding:14px 16px;border-bottom:1px solid var(--line);}
-  .source-row:last-child{border-bottom:none;}
-  .source-label{flex:0 0 240px;font-weight:600;font-size:12.5px;color:var(--text);}
-  .source-value{flex:1;min-width:180px;font-size:12px;color:var(--text-dim);font-family:var(--font-mono);}
-  .source-value a{color:var(--saffron);text-decoration:none;}
-  .source-value a:hover{text-decoration:underline;}
-  .source-status{flex:0 0 150px;text-align:right;}
-  @media (max-width:700px){ .source-label{flex-basis:100%;} .source-status{flex-basis:100%;text-align:left;} }
+  /* Risk */
+  --risk-low: #34d399;
+  --risk-low-dim: rgba(52, 211, 153, 0.12);
+  --risk-moderate: #fbbf24;
+  --risk-moderate-dim: rgba(251, 191, 36, 0.12);
+  --risk-high: #fb923c;
+  --risk-high-dim: rgba(251, 146, 60, 0.12);
+  --risk-critical: #f43f5e;
+  --risk-critical-dim: rgba(244, 63, 94, 0.12);
 
-  /* ── Impact Forecast Tab ───────────────────────────────────── */
-  .impact-section-label{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-faint);margin:0 0 10px;padding:0 2px;}
-  .national-strip{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap;}
-  .national-strip .ns-label{font-size:12px;color:var(--text-dim);font-family:var(--font-mono);}
-  .national-strip .ns-badge{font-family:var(--font-mono);font-size:11px;font-weight:600;padding:4px 10px;border-radius:6px;}
-  .city-risk-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;padding:16px;}
-  .city-risk-card{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:12px;cursor:pointer;transition:transform 0.2s ease, border-color 0.2s ease;}
-  .city-risk-card:hover{transform:scale(1.03);border-color:var(--line-strong);}
-  .city-risk-card.selected{border-color:var(--saffron);box-shadow:0 0 0 1px var(--saffron);}
-  .city-risk-card .crc-name{font-weight:600;font-size:13px;margin-bottom:6px;}
-  .city-risk-card .crc-row{display:flex;align-items:center;justify-content:space-between;gap:8px;}
-  .city-risk-card .crc-score{font-family:var(--font-mono);font-size:20px;font-weight:700;}
-  .city-risk-card .crc-badge{font-family:var(--font-mono);font-size:9.5px;font-weight:600;padding:3px 8px;border-radius:5px;}
-  .city-risk-card .crc-cond{font-family:var(--font-mono);font-size:10.5px;color:var(--text-faint);margin-top:6px;}
+  /* Typography */
+  --font-ui: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', monospace;
 
-  .impact-detail{animation:fadeSlideIn 0.4s ease;}
-  @keyframes fadeSlideIn{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
+  /* Radii */
+  --radius: 14px;
+  --radius-sm: 8px;
+  --radius-xs: 6px;
 
-  .risk-header{display:flex;align-items:center;gap:24px;padding:20px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap;}
-  .risk-circle{width:110px;height:110px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none;position:relative;}
-  .risk-circle-inner{width:88px;height:88px;border-radius:50%;background:var(--panel);display:flex;flex-direction:column;align-items:center;justify-content:center;}
-  .risk-circle-inner .rci-score{font-size:36px;font-weight:700;line-height:1;}
-  .risk-circle-inner .rci-label{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:0.06em;margin-top:2px;}
-  .risk-info{flex:1;min-width:200px;}
-  .risk-info .ri-city{font-size:18px;font-weight:700;margin:0 0 4px;display:flex;align-items:center;gap:8px;}
-  .risk-info .ri-badge{font-family:var(--font-mono);font-size:10.5px;font-weight:600;padding:3px 10px;border-radius:5px;}
-  .risk-info .ri-cond{font-family:var(--font-mono);font-size:12px;color:var(--text-dim);margin-top:6px;}
-  .pulse-dot{width:8px;height:8px;border-radius:50%;display:inline-block;animation:pulse 1.5s infinite;}
-  @keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:0.5;transform:scale(1.4);}}
+  /* Transitions */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur: 0.35s;
+}
 
-  .impact-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;padding:16px;}
-  .impact-card{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:14px;transition:transform 0.2s ease, box-shadow 0.2s ease;}
-  .impact-card:hover{transform:translateY(-3px);box-shadow:0 6px 20px rgba(0,0,0,0.25);}
-  .impact-card .ic-top{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
-  .impact-card .ic-icon{font-size:22px;}
-  .impact-card .ic-sector{font-weight:600;font-size:13.5px;flex:1;}
-  .impact-card .ic-sev{font-family:var(--font-mono);font-size:9.5px;font-weight:600;padding:3px 8px;border-radius:5px;}
-  .impact-card .ic-desc{font-size:12.5px;color:var(--text-dim);line-height:1.5;margin-bottom:8px;}
-  .impact-card .ic-advisory{font-size:11.5px;color:var(--saffron);font-family:var(--font-mono);line-height:1.5;padding:8px 10px;background:var(--saffron-dim);border-radius:6px;}
+/* ═══════════════════════════════════════════════════════════════
+   RESET & BASE
+   ═══════════════════════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg-deep);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.6;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
 
-  .infra-section{padding:16px;}
-  .infra-row{display:flex;align-items:center;gap:12px;margin-bottom:10px;}
-  .infra-row .ir-label{flex:0 0 180px;font-size:12px;font-family:var(--font-mono);color:var(--text-dim);}
-  .infra-row .ir-bar-wrap{flex:1;height:26px;background:var(--panel-2);border-radius:5px;overflow:hidden;position:relative;}
-  .infra-row .ir-bar{height:100%;border-radius:5px;transition:width 1s ease;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;font-family:var(--font-mono);font-size:10.5px;font-weight:600;color:#fff;min-width:36px;}
-  .infra-row .ir-count{flex:none;font-family:var(--font-mono);font-size:12px;font-weight:600;width:40px;text-align:right;}
-  @media (max-width:600px){.infra-row .ir-label{flex-basis:100%;} .infra-row{flex-wrap:wrap;}}
+/* Animated aurora background */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 50% at 20% 20%, rgba(56, 189, 248, 0.06), transparent),
+    radial-gradient(ellipse 60% 60% at 80% 60%, rgba(139, 92, 246, 0.05), transparent),
+    radial-gradient(ellipse 70% 40% at 50% 90%, rgba(240, 160, 48, 0.04), transparent);
+  animation: auroraDrift 25s ease-in-out infinite alternate;
+  pointer-events: none;
+  z-index: 0;
+}
+@keyframes auroraDrift {
+  0%   { transform: translate(0, 0) scale(1); }
+  50%  { transform: translate(-30px, 20px) scale(1.05); }
+  100% { transform: translate(20px, -15px) scale(1.02); }
+}
 
-  .pop-strip{display:flex;align-items:center;gap:16px;padding:14px 16px;border-top:1px solid var(--line);flex-wrap:wrap;}
-  .pop-strip .ps-num{font-size:28px;font-weight:700;font-family:var(--font-mono);}
-  .pop-strip .ps-label{font-size:11px;color:var(--text-faint);font-family:var(--font-mono);text-transform:uppercase;}
-  .pop-strip .ps-badge{font-family:var(--font-mono);font-size:10px;font-weight:600;padding:4px 10px;border-radius:5px;}
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 7px; }
+::-webkit-scrollbar-track { background: var(--bg-deep); }
+::-webkit-scrollbar-thumb { background: rgba(100, 140, 200, 0.2); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(100, 140, 200, 0.35); }
 
-  .alert-card{display:flex;gap:12px;padding:13px 16px;border-left:3px solid var(--line-strong);border-bottom:1px solid var(--line);}
-  .alert-card.alert-WARNING{border-left-color:var(--risk-moderate);}
-  .alert-card.alert-CRITICAL{border-left-color:var(--risk-critical);}
-  .alert-card.alert-ADVISORY{border-left-color:var(--pending);}
-  .alert-card .ac-level{font-family:var(--font-mono);font-size:10px;font-weight:600;margin-bottom:4px;}
-  .alert-card .ac-msg{font-size:13px;line-height:1.5;}
-  .alert-card .ac-time{font-family:var(--font-mono);font-size:10.5px;color:var(--text-faint);margin-top:4px;}
+/* ═══════════════════════════════════════════════════════════════
+   LAYOUT
+   ═══════════════════════════════════════════════════════════════ */
+.wrap {
+  position: relative;
+  z-index: 1;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 36px 24px 80px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   HEADER
+   ═══════════════════════════════════════════════════════════════ */
+header { margin-bottom: 30px; }
+.badge-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--verified);
+  letter-spacing: 0.04em;
+  margin-bottom: 12px;
+  padding: 5px 12px;
+  background: var(--verified-dim);
+  border-radius: 20px;
+  border: 1px solid rgba(52, 211, 153, 0.15);
+}
+.badge-live i {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--verified);
+  box-shadow: 0 0 8px var(--verified);
+  animation: livePulse 2s ease-in-out infinite;
+}
+@keyframes livePulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 8px var(--verified); }
+  50% { opacity: 0.5; box-shadow: 0 0 16px var(--verified); }
+}
+header h1 {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0 0 8px;
+  background: linear-gradient(135deg, var(--text), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+header p {
+  color: var(--text-dim);
+  font-size: 14px;
+  max-width: 660px;
+  line-height: 1.65;
+  font-weight: 400;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   NAVIGATION — Pill tabs
+   ═══════════════════════════════════════════════════════════════ */
+nav {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 28px;
+  padding: 5px;
+  background: var(--bg-panel);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  overflow-x: auto;
+}
+nav button {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 9px 16px;
+  cursor: pointer;
+  border-radius: 8px;
+  white-space: nowrap;
+  transition: all var(--dur) var(--ease);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+nav button:hover { color: var(--text-dim); background: var(--bg-hover); }
+nav button.active {
+  color: var(--text);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+}
+nav button .tab-icon { font-size: 14px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   PANEL — Glassmorphism
+   ═══════════════════════════════════════════════════════════════ */
+.panel {
+  background: var(--bg-panel);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 20px;
+  animation: panelIn 0.5s var(--ease) both;
+}
+@keyframes panelIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.panel-head {
+  padding: 15px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.panel-head h2 {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.panel-head .meta {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--text-faint);
+  letter-spacing: 0.02em;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CONTENT TRANSITION
+   ═══════════════════════════════════════════════════════════════ */
+#content { animation: contentFadeIn 0.4s var(--ease); }
+@keyframes contentFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* ═══════════════════════════════════════════════════════════════
+   SHIMMER LOADING SKELETON
+   ═══════════════════════════════════════════════════════════════ */
+.shimmer-line {
+  height: 14px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--bg-elevated) 25%, rgba(40,55,90,0.5) 50%, var(--bg-elevated) 75%);
+  background-size: 300% 100%;
+  animation: shimmer 1.8s infinite;
+}
+.shimmer-block {
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--bg-elevated) 25%, rgba(40,55,90,0.5) 50%, var(--bg-elevated) 75%);
+  background-size: 300% 100%;
+  animation: shimmer 1.8s infinite;
+}
+@keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+
+/* ═══════════════════════════════════════════════════════════════
+   MAP
+   ═══════════════════════════════════════════════════════════════ */
+#mapEl { height: 460px; width: 100%; background: var(--bg-base); border-radius: 0; }
+.leaflet-popup-content-wrapper {
+  background: var(--bg-panel-solid) !important;
+  color: var(--text) !important;
+  border-radius: 10px !important;
+  border: 1px solid var(--border-strong) !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4) !important;
+}
+.leaflet-popup-content { font-family: var(--font-ui) !important; font-size: 12.5px !important; margin: 12px 14px !important; line-height: 1.55 !important; }
+.leaflet-popup-tip { background: var(--bg-panel-solid) !important; }
+.leaflet-container { font-family: var(--font-ui) !important; }
+.leaflet-control-attribution { background: rgba(6,11,24,0.75) !important; color: var(--text-faint) !important; font-size: 9px !important; }
+.leaflet-control-attribution a { color: var(--text-dim) !important; }
+
+.legend {
+  display: flex;
+  gap: 16px;
+  padding: 14px 20px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border);
+}
+.legend span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+.legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; box-shadow: 0 0 6px currentColor; }
+
+/* ═══════════════════════════════════════════════════════════════
+   CITY GRID (Map tab)
+   ═══════════════════════════════════════════════════════════════ */
+.city-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  padding: 18px;
+}
+.city-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  transition: all var(--dur) var(--ease);
+  animation: cardStagger 0.5s var(--ease) both;
+}
+.city-card:hover { transform: translateY(-3px); border-color: var(--border-strong); box-shadow: 0 8px 24px rgba(0,0,0,0.25); }
+.city-card .name { font-weight: 600; font-size: 14px; margin-bottom: 5px; }
+.city-card .cond { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-dim); margin-top: 4px; }
+.city-card .loading { color: var(--text-faint); font-size: 11px; font-family: var(--font-mono); }
+@keyframes cardStagger {
+  from { opacity: 0; transform: translateY(20px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   FEED
+   ═══════════════════════════════════════════════════════════════ */
+.feed-item {
+  display: flex;
+  gap: 14px;
+  padding: 16px 20px;
+  border-left: 3px solid var(--border-strong);
+  border-bottom: 1px solid var(--border);
+  transition: background var(--dur) var(--ease);
+  animation: cardStagger 0.4s var(--ease) both;
+}
+.feed-item:hover { background: var(--bg-hover); }
+.feed-thumb {
+  width: 58px; height: 58px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  flex: none;
+  background: var(--bg-elevated);
+}
+.feed-item.status-verified { border-left-color: var(--verified); }
+.feed-item.status-flagged  { border-left-color: var(--flagged); }
+.feed-item.status-pending  { border-left-color: var(--pending); }
+.feed-desc { margin: 0 0 6px; font-size: 13.5px; line-height: 1.5; }
+.feed-meta {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-weight: 500;
+}
+.status-tag { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.03em; }
+.status-tag.status-verified { color: var(--verified); }
+.status-tag.status-flagged  { color: var(--flagged); }
+.status-tag.status-pending  { color: var(--pending); }
+
+/* ═══════════════════════════════════════════════════════════════
+   FORM
+   ═══════════════════════════════════════════════════════════════ */
+.form-panel { padding: 24px; max-width: 580px; }
+.field { margin-bottom: 20px; }
+.field label {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-bottom: 7px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.field input, .field select, .field textarea {
+  width: 100%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 11px 13px;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  transition: all var(--dur) var(--ease);
+  outline: none;
+}
+.field input:focus, .field select:focus, .field textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim), 0 0 20px rgba(240, 160, 48, 0.08);
+}
+.field textarea { min-height: 80px; resize: vertical; }
+.file-drop {
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 20px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  transition: all var(--dur) var(--ease);
+}
+.file-drop:hover {
+  border-color: var(--accent);
+  color: var(--text-dim);
+  background: var(--accent-dim);
+  box-shadow: 0 0 24px rgba(240, 160, 48, 0.06);
+}
+.file-drop img { max-height: 110px; border-radius: var(--radius-sm); margin-top: 8px; }
+.hidden { display: none !important; }
+
+.btn {
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 12px 24px;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  background: linear-gradient(135deg, var(--accent), #e08820);
+  color: #1a0e00;
+  transition: all var(--dur) var(--ease);
+  letter-spacing: 0.01em;
+  position: relative;
+  overflow: hidden;
+}
+.btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.15), transparent);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.btn:hover::after { opacity: 1; }
+.btn:hover { box-shadow: 0 4px 20px var(--accent-glow); transform: translateY(-1px); }
+.btn:disabled { opacity: 0.45; cursor: default; transform: none; box-shadow: none; }
+
+.result { margin-top: 20px; padding: 16px; border-radius: var(--radius-sm); display: none; animation: panelIn 0.4s var(--ease); }
+.result.show { display: block; }
+.result.ok  { background: var(--verified-dim); border: 1px solid rgba(52,211,153,0.2); }
+.result.bad { background: var(--flagged-dim); border: 1px solid rgba(248,113,113,0.2); }
+.result h3 { margin: 0 0 6px; font-size: 14px; }
+.result p { margin: 0; font-size: 13px; color: var(--text-dim); line-height: 1.6; }
+.empty { padding: 28px; color: var(--text-faint); font-size: 13px; font-style: italic; }
+
+/* ═══════════════════════════════════════════════════════════════
+   SOURCES
+   ═══════════════════════════════════════════════════════════════ */
+.source-list { padding: 6px 0; }
+.source-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  transition: background var(--dur) var(--ease);
+}
+.source-row:last-child { border-bottom: none; }
+.source-row:hover { background: var(--bg-hover); }
+.source-label { flex: 0 0 250px; font-weight: 600; font-size: 13px; }
+.source-value { flex: 1; min-width: 180px; font-size: 12px; color: var(--text-dim); font-family: var(--font-mono); font-weight: 500; }
+.source-value a { color: var(--accent); text-decoration: none; transition: color 0.2s; }
+.source-value a:hover { text-decoration: underline; color: #ffc060; }
+.source-status { flex: 0 0 150px; text-align: right; }
+@media (max-width: 700px) { .source-label { flex-basis: 100%; } .source-status { flex-basis: 100%; text-align: left; } }
+
+/* ═══════════════════════════════════════════════════════════════
+   IMPACT FORECAST
+   ═══════════════════════════════════════════════════════════════ */
+.impact-section-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+  margin: 0 0 12px;
+  padding: 0 2px;
+}
+.national-strip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  background: linear-gradient(135deg, rgba(14,22,42,0.4), transparent);
+}
+.national-strip .ns-label { font-size: 12px; color: var(--text-dim); font-family: var(--font-mono); font-weight: 500; }
+.national-strip .ns-badge {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 5px 12px;
+  border-radius: var(--radius-xs);
+  letter-spacing: 0.04em;
+}
+
+/* City risk cards grid */
+.city-risk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+  gap: 10px;
+  padding: 18px;
+}
+.city-risk-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  cursor: pointer;
+  transition: all var(--dur) var(--ease);
+  animation: cardStagger 0.45s var(--ease) both;
+}
+.city-risk-card:hover { transform: translateY(-4px) scale(1.02); border-color: var(--border-strong); box-shadow: 0 8px 28px rgba(0,0,0,0.3); }
+.city-risk-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 4px 20px var(--accent-glow);
+}
+.city-risk-card .crc-name { font-weight: 600; font-size: 13.5px; margin-bottom: 8px; }
+.city-risk-card .crc-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.city-risk-card .crc-score { font-family: var(--font-mono); font-size: 22px; font-weight: 800; }
+.city-risk-card .crc-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: var(--radius-xs);
+  letter-spacing: 0.04em;
+}
+.city-risk-card .crc-cond { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-faint); margin-top: 8px; font-weight: 500; }
+
+/* Impact detail animation */
+.impact-detail { animation: fadeSlideIn 0.5s var(--ease); }
+@keyframes fadeSlideIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Risk header (detail view) */
+.risk-header {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  padding: 24px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  background: linear-gradient(135deg, rgba(14,22,42,0.4), transparent);
+}
+.risk-circle {
+  width: 120px; height: 120px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  position: relative;
+  animation: riskCircleIn 1s var(--ease) both;
+}
+@keyframes riskCircleIn {
+  from { transform: scale(0.6) rotate(-90deg); opacity: 0; }
+  to   { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+.risk-circle-inner {
+  width: 94px; height: 94px;
+  border-radius: 50%;
+  background: var(--bg-panel-solid);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 20px rgba(0,0,0,0.3);
+}
+.risk-circle-inner .rci-score { font-size: 38px; font-weight: 800; line-height: 1; font-family: var(--font-mono); }
+.risk-circle-inner .rci-label {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin-top: 3px;
+  color: var(--text-faint);
+}
+.risk-info { flex: 1; min-width: 200px; }
+.risk-info .ri-city { font-size: 20px; font-weight: 700; margin: 0 0 6px; display: flex; align-items: center; gap: 10px; letter-spacing: -0.01em; }
+.risk-info .ri-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: var(--radius-xs);
+  letter-spacing: 0.05em;
+}
+.risk-info .ri-cond { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); margin-top: 8px; font-weight: 500; }
+
+.pulse-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  animation: pulse 1.5s infinite;
+}
+@keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(1.5); } }
+
+/* Impact cards grid */
+.impact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 12px;
+  padding: 18px;
+}
+.impact-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  transition: all var(--dur) var(--ease);
+  animation: cardStagger 0.45s var(--ease) both;
+}
+.impact-card:hover { transform: translateY(-4px); box-shadow: 0 8px 28px rgba(0,0,0,0.3); border-color: var(--border-strong); }
+.impact-card .ic-top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.impact-card .ic-icon { font-size: 24px; }
+.impact-card .ic-sector { font-weight: 600; font-size: 14px; flex: 1; }
+.impact-card .ic-sev {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: var(--radius-xs);
+  letter-spacing: 0.04em;
+}
+.impact-card .ic-desc { font-size: 13px; color: var(--text-dim); line-height: 1.6; margin-bottom: 10px; }
+.impact-card .ic-advisory {
+  font-size: 11.5px;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-weight: 500;
+  line-height: 1.5;
+  padding: 10px 12px;
+  background: var(--accent-dim);
+  border-radius: var(--radius-xs);
+  border: 1px solid rgba(240,160,48,0.1);
+}
+
+/* Infrastructure bars */
+.infra-section { padding: 18px 20px; }
+.infra-row { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+.infra-row .ir-label { flex: 0 0 190px; font-size: 12px; font-family: var(--font-mono); color: var(--text-dim); font-weight: 500; }
+.infra-row .ir-bar-wrap {
+  flex: 1;
+  height: 30px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+  position: relative;
+}
+.infra-row .ir-bar {
+  height: 100%;
+  border-radius: var(--radius-xs);
+  transition: width 1.2s var(--ease);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 10px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #fff;
+  min-width: 40px;
+  position: relative;
+  overflow: hidden;
+}
+.infra-row .ir-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+  animation: barShimmer 2s infinite;
+}
+@keyframes barShimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+@media (max-width: 600px) { .infra-row .ir-label { flex-basis: 100%; } .infra-row { flex-wrap: wrap; } }
+
+/* Population strip */
+.pop-strip {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.pop-strip .ps-num { font-size: 30px; font-weight: 800; font-family: var(--font-mono); letter-spacing: -0.02em; }
+.pop-strip .ps-label { font-size: 10.5px; color: var(--text-faint); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+.pop-strip .ps-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 5px 12px;
+  border-radius: var(--radius-xs);
+  letter-spacing: 0.03em;
+}
+
+/* Alerts */
+.alert-card {
+  display: flex;
+  gap: 14px;
+  padding: 15px 20px;
+  border-left: 3px solid var(--border-strong);
+  border-bottom: 1px solid var(--border);
+  transition: background var(--dur) var(--ease);
+}
+.alert-card:hover { background: var(--bg-hover); }
+.alert-card.alert-WARNING  { border-left-color: var(--risk-moderate); }
+.alert-card.alert-CRITICAL { border-left-color: var(--risk-critical); }
+.alert-card.alert-ADVISORY { border-left-color: var(--pending); }
+.alert-card .ac-level { font-family: var(--font-mono); font-size: 10px; font-weight: 700; margin-bottom: 5px; letter-spacing: 0.04em; }
+.alert-card .ac-msg { font-size: 13.5px; line-height: 1.55; }
+.alert-card .ac-time { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-faint); margin-top: 5px; font-weight: 500; }
+
+/* Early warning cards */
+.ews-card {
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  margin-bottom: 10px;
+  transition: all var(--dur) var(--ease);
+  animation: cardStagger 0.45s var(--ease) both;
+  position: relative;
+  overflow: hidden;
+}
+.ews-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, currentColor, transparent);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0.15;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE
+   ═══════════════════════════════════════════════════════════════ */
+@media (max-width: 640px) {
+  .wrap { padding: 20px 14px 60px; }
+  header h1 { font-size: 22px; }
+  nav { gap: 2px; padding: 4px; }
+  nav button { font-size: 11px; padding: 7px 10px; gap: 4px; }
+  nav button .tab-icon { font-size: 12px; }
+  .risk-header { gap: 16px; padding: 18px 16px; }
+  .risk-circle { width: 100px; height: 100px; }
+  .risk-circle-inner { width: 78px; height: 78px; }
+  .risk-circle-inner .rci-score { font-size: 28px; }
+  .city-risk-grid { grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); gap: 8px; padding: 12px; }
+  .impact-grid { grid-template-columns: 1fr; padding: 12px; }
+  .pop-strip .ps-num { font-size: 24px; }
+}
 </style>
 </head>
 <body>
@@ -159,27 +783,26 @@
     <h1>Weather Data Analysis</h1>
     <p>This runs on a real backend. Map and city conditions below are fetched live; reports you submit are checked against that live data and stored in a real database.</p>
   </header>
-  <nav>
-    <button data-tab="impact" class="active">Impact Forecast</button>
-    <button data-tab="map">Map</button>
-    <button data-tab="feed">Report feed</button>
-    <button data-tab="submit">Submit report</button>
-    <button data-tab="sources">Sources</button>
+  <nav id="mainNav">
+    <button data-tab="impact" class="active"><span class="tab-icon">🛡️</span>Impact Forecast</button>
+    <button data-tab="map"><span class="tab-icon">🗺️</span>Map</button>
+    <button data-tab="feed"><span class="tab-icon">📋</span>Report Feed</button>
+    <button data-tab="submit"><span class="tab-icon">📝</span>Submit Report</button>
+    <button data-tab="sources"><span class="tab-icon">🔗</span>Sources</button>
   </nav>
   <div id="content"></div>
 </div>
 
 <script>
-// When the frontend and backend are hosted separately (Vercel + Render),
-// point this at your Render backend's URL, e.g.:
-//   var API_BASE = 'https://weather-data-analysis.onrender.com';
-//   var API_BASE = 'https://weather-data-analysis-63zg.onrender.com';
+// ═══════════════════════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════════════════════
 var API_BASE = 'https://weather-data-analysis-63zg.onrender.com';
 
 var EVENT_LABELS = { flood:'Flood', storm:'Thunderstorm / heavy rain', heatwave:'Heatwave', fog:'Fog', clear:'Clear conditions' };
 var CONDITION_COLOR = {
-  flood: 'var(--flood)', storm: 'var(--flagged)', heatwave: 'var(--heatwave)',
-  fog: 'var(--fog)', clear: 'var(--verified)'
+  flood: 'var(--flood)', storm: 'var(--storm)', heatwave: 'var(--heatwave)',
+  fog: 'var(--fog)', clear: 'var(--clear)'
 };
 var currentTab = 'impact';
 var citiesCache = null;
@@ -188,18 +811,29 @@ var leafletMap = null;
 function el(id){ return document.getElementById(id); }
 function cssVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name.replace('var(','').replace(')','')).trim(); }
 function resolveColor(v){
-  // v is like 'var(--flood)' — resolve to an actual hex for Leaflet, which doesn't understand CSS vars.
   if (v.indexOf('var(') === 0) return cssVar(v);
   return v;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// NAV
+// ═══════════════════════════════════════════════════════════════
 document.querySelectorAll('nav button').forEach(function(b){
   b.addEventListener('click', function(){
     document.querySelectorAll('nav button').forEach(function(x){ x.classList.remove('active'); });
     b.classList.add('active');
     currentTab = b.dataset.tab;
-    leafletMap = null; // force re-init if we come back to Map tab
-    render();
+    leafletMap = null;
+    // Add transition
+    var content = el('content');
+    content.style.opacity = '0';
+    content.style.transform = 'translateY(8px)';
+    setTimeout(function(){
+      render();
+      content.style.transition = 'opacity 0.35s cubic-bezier(0.16,1,0.3,1), transform 0.35s cubic-bezier(0.16,1,0.3,1)';
+      content.style.opacity = '1';
+      content.style.transform = 'translateY(0)';
+    }, 80);
   });
 });
 
@@ -211,9 +845,32 @@ function render(){
   else renderSubmit();
 }
 
-// ---------------------------------------------------------------------------
-// Impact-Based Forecasting tab — the key differentiator feature
-// ---------------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════════════
+// SHIMMER HELPERS
+// ═══════════════════════════════════════════════════════════════
+function shimmerCards(count, height) {
+  var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:10px;padding:18px;">';
+  for (var i = 0; i < count; i++) {
+    html += '<div class="shimmer-block" style="height:' + (height || 100) + 'px;animation-delay:' + (i * 0.1) + 's;"></div>';
+  }
+  return html + '</div>';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// STAGGER HELPER — applies staggered animation-delay to cards
+// ═══════════════════════════════════════════════════════════════
+function applyStagger(selector, baseDelay) {
+  var d = baseDelay || 0.04;
+  setTimeout(function(){
+    document.querySelectorAll(selector).forEach(function(el, i){
+      el.style.animationDelay = (i * d) + 's';
+    });
+  }, 10);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// IMPACT FORECAST
+// ═══════════════════════════════════════════════════════════════
 var impactCache = null;
 var selectedImpactCity = null;
 
@@ -233,14 +890,13 @@ function renderImpact(){
   el('content').innerHTML =
     '<div class="panel">' +
       '<div class="panel-head"><h2>🛡️ Impact-Based Forecast — National Overview</h2><span class="meta">live · powered by Open-Meteo</span></div>' +
-      '<div id="impactNational"><div class="empty">Loading impact forecasts for all cities…</div></div>' +
+      '<div id="impactNational">' + shimmerCards(11, 105) + '</div>' +
     '</div>' +
     '<div id="impactDetail"></div>';
 
   fetch(API_BASE + '/api/impact-forecast').then(function(r){ return r.json(); }).then(function(data){
     impactCache = data;
     renderImpactOverview(data);
-    // Auto-select the highest-risk city
     var highest = data.reduce(function(a,b){ return a.risk_score > b.risk_score ? a : b; }, data[0]);
     if(highest) selectImpactCity(highest.city_id);
   }).catch(function(){
@@ -249,7 +905,6 @@ function renderImpact(){
 }
 
 function renderImpactOverview(data){
-  // Calculate national summary
   var maxRisk = data.reduce(function(a,b){ return a.risk_score > b.risk_score ? a : b; }, data[0]);
   var avgScore = Math.round(data.reduce(function(s,c){ return s+c.risk_score; },0)/data.length);
   var highCount = data.filter(function(c){ return c.risk_level==='HIGH'||c.risk_level==='CRITICAL'; }).length;
@@ -264,9 +919,9 @@ function renderImpactOverview(data){
   '</div>';
 
   html += '<div class="city-risk-grid">';
-  data.forEach(function(c){
+  data.forEach(function(c, i){
     var sel = selectedImpactCity === c.city_id ? ' selected' : '';
-    html += '<div class="city-risk-card'+sel+'" onclick="selectImpactCity(\''+c.city_id+'\')">' +
+    html += '<div class="city-risk-card'+sel+'" onclick="selectImpactCity(\''+c.city_id+'\')" style="animation-delay:'+( i * 0.05)+'s">' +
       '<div class="crc-name">'+c.city_name+'</div>' +
       '<div class="crc-row">' +
         '<span class="crc-score" style="color:'+riskColor(c.risk_level)+'">'+c.risk_score+'</span>' +
@@ -282,7 +937,6 @@ function renderImpactOverview(data){
 
 function selectImpactCity(cityId){
   selectedImpactCity = cityId;
-  // Update selected card styling
   document.querySelectorAll('.city-risk-card').forEach(function(card){
     card.classList.remove('selected');
   });
@@ -293,7 +947,19 @@ function selectImpactCity(cityId){
     });
   }
 
-  // Fetch detailed impact and early warnings for this city
+  // Show shimmer while loading
+  el('impactDetail').innerHTML =
+    '<div class="panel" style="margin-top:20px;">' +
+      '<div style="padding:20px;display:flex;gap:24px;align-items:center;flex-wrap:wrap;">' +
+        '<div class="shimmer-block" style="width:120px;height:120px;border-radius:50%;"></div>' +
+        '<div style="flex:1;min-width:200px;">' +
+          '<div class="shimmer-line" style="width:60%;height:20px;margin-bottom:12px;"></div>' +
+          '<div class="shimmer-line" style="width:40%;height:14px;margin-bottom:8px;"></div>' +
+          '<div class="shimmer-line" style="width:80%;height:12px;"></div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
   Promise.all([
     fetch(API_BASE + '/api/impact-forecast/' + cityId).then(function(r){ return r.json(); }),
     fetch(API_BASE + '/api/early-warnings/' + cityId).then(function(r){ return r.json(); })
@@ -310,11 +976,11 @@ function renderImpactDetail(d){
   var pulseDot = (d.risk_level==='HIGH'||d.risk_level==='CRITICAL') ?
     '<span class="pulse-dot" style="background:'+riskColor(d.risk_level)+'"></span>' : '';
 
-  var html = '<div class="panel impact-detail" style="margin-top:18px;">';
+  var html = '<div class="panel impact-detail" style="margin-top:20px;">';
 
   // ── Risk Header with animated circle
   html += '<div class="risk-header">' +
-    '<div class="risk-circle" style="background:conic-gradient('+riskColor(d.risk_level)+' '+d.risk_score+'%, var(--panel-2) 0)">' +
+    '<div class="risk-circle" style="background:conic-gradient('+riskColor(d.risk_level)+' '+d.risk_score+'%, var(--bg-elevated) 0)">' +
       '<div class="risk-circle-inner">' +
         '<span class="rci-score" style="color:'+riskColor(d.risk_level)+'">'+d.risk_score+'</span>' +
         '<span class="rci-label">RISK</span>' +
@@ -330,17 +996,17 @@ function renderImpactDetail(d){
 
   // ── AI Early Warnings
   if(d.early_warnings && d.early_warnings.length){
-    html += '<div style="padding:16px 16px 0;"><div class="impact-section-label" style="color:var(--risk-critical);display:flex;align-items:center;gap:8px;"><span class="pulse-dot" style="background:var(--risk-critical);position:relative;margin:0;"></span> AI Early Warning System</div></div>';
-    html += '<div style="padding:12px 16px;">';
-    d.early_warnings.forEach(function(w){
+    html += '<div style="padding:18px 20px 0;"><div class="impact-section-label" style="color:var(--risk-critical);display:flex;align-items:center;gap:8px;"><span class="pulse-dot" style="background:var(--risk-critical);position:relative;margin:0;"></span> AI Early Warning System</div></div>';
+    html += '<div style="padding:12px 20px;">';
+    d.early_warnings.forEach(function(w, i){
       var sevCol = riskColor(w.severity);
       var sevBg = riskBg(w.severity);
-      html += '<div class="ews-card" style="border:1px solid '+sevCol+'; background:'+sevBg+'; border-radius:8px; padding:12px; margin-bottom:10px;">' +
-        '<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px;">' +
-          '<div style="font-weight:600; color:'+sevCol+'; font-size:14px;">⚠ '+w.title+'</div>' +
-          '<div style="font-size:11px; font-family:var(--font-mono); font-weight:600; background:rgba(0,0,0,0.1); padding:2px 6px; border-radius:4px; color:'+sevCol+';">CONFIDENCE: '+w.confidence+'%</div>' +
+      html += '<div class="ews-card" style="border:1px solid '+sevCol+'; background:'+sevBg+'; color:'+sevCol+'; animation-delay:'+(i*0.1)+'s;">' +
+        '<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">' +
+          '<div style="font-weight:700; color:'+sevCol+'; font-size:14px;">⚠ '+w.title+'</div>' +
+          '<div style="font-size:10.5px; font-family:var(--font-mono); font-weight:700; background:rgba(0,0,0,0.15); padding:3px 8px; border-radius:4px; color:'+sevCol+';">CONFIDENCE: '+w.confidence+'%</div>' +
         '</div>' +
-        '<div style="font-size:13px; line-height:1.5;">'+w.description+'</div>' +
+        '<div style="font-size:13px; line-height:1.6; color:var(--text-dim);">'+w.description+'</div>' +
       '</div>';
     });
     html += '</div>';
@@ -348,10 +1014,10 @@ function renderImpactDetail(d){
 
   // ── Impact Sectors
   if(d.impacts && d.impacts.length){
-    html += '<div style="padding:16px 16px 0;"><div class="impact-section-label">Sector Impacts</div></div>';
+    html += '<div style="padding:18px 20px 0;"><div class="impact-section-label">Sector Impacts</div></div>';
     html += '<div class="impact-grid">';
-    d.impacts.forEach(function(imp){
-      html += '<div class="impact-card">' +
+    d.impacts.forEach(function(imp, i){
+      html += '<div class="impact-card" style="animation-delay:'+(i*0.08)+'s">' +
         '<div class="ic-top">' +
           '<span class="ic-icon">'+imp.icon+'</span>' +
           '<span class="ic-sector">'+imp.sector+'</span>' +
@@ -399,7 +1065,7 @@ function renderImpactDetail(d){
 
   // ── Active Alerts
   if(d.alerts && d.alerts.length){
-    html += '<div style="padding:16px 16px 0;"><div class="impact-section-label">Active Alerts</div></div>';
+    html += '<div style="padding:18px 20px 0;"><div class="impact-section-label">Active Alerts</div></div>';
     d.alerts.forEach(function(a){
       var lvlColor = {WARNING:'var(--risk-moderate)',CRITICAL:'var(--risk-critical)',ADVISORY:'var(--pending)'}[a.level]||'var(--text-faint)';
       var when = new Date(a.issued_at * 1000).toLocaleString('en-IN');
@@ -414,23 +1080,26 @@ function renderImpactDetail(d){
     });
   }
 
-  html += '</div>'; // close panel
+  html += '</div>';
   el('impactDetail').innerHTML = html;
 
-  // Animate the bar chart widths (start from 0)
+  // Animate the bar chart widths
   setTimeout(function(){
     document.querySelectorAll('.ir-bar').forEach(function(bar){
       var w = bar.style.width;
       bar.style.width = '0%';
-      setTimeout(function(){ bar.style.width = w; }, 50);
+      setTimeout(function(){ bar.style.width = w; }, 60);
     });
-  }, 50);
+  }, 60);
 }
 
+// ═══════════════════════════════════════════════════════════════
+// MAP
+// ═══════════════════════════════════════════════════════════════
 function renderMapTab(){
   el('content').innerHTML =
     '<div class="panel">' +
-      '<div class="panel-head"><h2>Live map — India</h2><span class="meta">OpenStreetMap · click a marker</span></div>' +
+      '<div class="panel-head"><h2>🗺️ Live Map — India</h2><span class="meta">CartoDB Dark Matter · click a marker</span></div>' +
       '<div id="mapEl"></div>' +
       '<div class="legend">' +
         '<span><i style="background:'+resolveColor(CONDITION_COLOR.flood)+'"></i>Flood</span>' +
@@ -440,17 +1109,17 @@ function renderMapTab(){
         '<span><i style="background:'+resolveColor(CONDITION_COLOR.clear)+'"></i>Clear</span>' +
       '</div>' +
     '</div>' +
-    '<div class="panel"><div class="panel-head"><h2>Tracked cities</h2></div>' +
-    '<div class="city-grid" id="cityGrid"><div class="empty">Loading live weather data…</div></div></div>';
+    '<div class="panel"><div class="panel-head"><h2>Tracked Cities</h2></div>' +
+    '<div class="city-grid" id="cityGrid">' + shimmerCards(11, 80).replace('175px','220px') + '</div></div>';
 
   fetch(API_BASE + '/api/cities').then(function(r){ return r.json(); }).then(function(cities){
     citiesCache = cities;
     initMap(cities);
 
     var grid = el('cityGrid');
-    grid.innerHTML = cities.map(function(c){
-      return '<div class="city-card" id="card-'+c.id+'"><div class="name">'+c.name+'</div><div class="loading">fetching…</div></div>';
-    }).join('');
+    grid.innerHTML = '<div class="city-grid">' + cities.map(function(c, i){
+      return '<div class="city-card" id="card-'+c.id+'" style="animation-delay:'+(i*0.04)+'s"><div class="name">'+c.name+'</div><div class="loading">fetching…</div></div>';
+    }).join('') + '</div>';
 
     cities.forEach(function(c){
       fetch(API_BASE + '/api/ground-truth/' + c.id).then(function(r){ return r.json(); }).then(function(g){
@@ -478,15 +1147,17 @@ function initMap(cities){
   if (!container || typeof L === 'undefined') return;
 
   leafletMap = L.map('mapEl', { scrollWheelZoom: false }).setView([22.9, 79.5], 5);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+
+  // Dark-themed tiles
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     maxZoom: 12,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> · <a href="https://carto.com/">CARTO</a>'
   }).addTo(leafletMap);
 
   markersByCity = {};
   cities.forEach(function(c){
     var m = L.circleMarker([c.lat, c.lon], {
-      radius: 9, weight: 2, color: resolveColor('var(--text-faint)'),
+      radius: 10, weight: 2.5, color: resolveColor('var(--text-faint)'),
       fillColor: resolveColor('var(--text-faint)'), fillOpacity: 0.85
     }).addTo(leafletMap);
     m.bindPopup('<b>' + c.name + '</b><br>Loading live data…');
@@ -510,25 +1181,35 @@ function cityNameById(id){
   return id;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// FEED
+// ═══════════════════════════════════════════════════════════════
 function renderFeed(){
   el('content').innerHTML =
-    '<div class="panel"><div class="panel-head"><h2>Report feed</h2></div><div id="feedList"><div class="empty">Loading…</div></div></div>';
+    '<div class="panel"><div class="panel-head"><h2>📋 Report Feed</h2></div><div id="feedList">' +
+    '<div style="padding:18px;">' +
+      '<div class="shimmer-line" style="width:90%;margin-bottom:14px;height:16px;"></div>' +
+      '<div class="shimmer-line" style="width:70%;margin-bottom:14px;height:16px;"></div>' +
+      '<div class="shimmer-line" style="width:80%;height:16px;"></div>' +
+    '</div>' +
+    '</div></div>';
+
   fetch(API_BASE + '/api/reports').then(function(r){ return r.json(); }).then(function(reports){
     var list = el('feedList');
     if (!reports.length){ list.innerHTML = '<div class="empty">No reports yet — submit one from the Submit tab.</div>'; return; }
-    list.innerHTML = reports.map(function(r){
+    list.innerHTML = reports.map(function(r, i){
       var when = new Date(r.created_at * 1000).toLocaleString('en-IN');
       var statusText;
-      if (r.status === 'verified') statusText = 'Verified';
-      else if (r.status === 'pending') statusText = 'Pending';
-      else if (r.flag_reason === 'duplicate_image') statusText = 'Flagged — duplicate image';
-      else statusText = 'Flagged — no matching ground data';
+      if (r.status === 'verified') statusText = '✓ Verified';
+      else if (r.status === 'pending') statusText = '⏳ Pending';
+      else if (r.flag_reason === 'duplicate_image') statusText = '⚠ Flagged — duplicate image';
+      else statusText = '⚠ Flagged — no matching ground data';
 
       var thumbHtml = r.photo_path
         ? '<img class="feed-thumb" src="' + API_BASE + r.photo_path + '" alt="submitted photo">'
         : '';
 
-      return '<div class="feed-item status-' + r.status + '">' +
+      return '<div class="feed-item status-' + r.status + '" style="animation-delay:'+(i*0.04)+'s">' +
         thumbHtml +
         '<div style="flex:1;">' +
         '<span class="status-tag status-' + r.status + '">' + statusText + '</span>' +
@@ -539,6 +1220,9 @@ function renderFeed(){
   });
 }
 
+// ═══════════════════════════════════════════════════════════════
+// SOURCES
+// ═══════════════════════════════════════════════════════════════
 var SOURCES = [
   ['Live deployed prototype', 'weather-data-analysis-steel.vercel.app', null],
   ['Source code (GitHub)', 'github.com/mugesh3112007-sudo/weather-data-analysis', 'https://github.com/mugesh3112007-sudo/weather-data-analysis'],
@@ -547,15 +1231,21 @@ var SOURCES = [
 
 function renderSources(){
   el('content').innerHTML =
-    '<div class="panel"><div class="panel-head"><h2>Data sources &amp; credits</h2><span class="meta">transparency</span></div>' +
-    '<div class="source-list" id="sourceList"><div class="empty">Loading…</div></div></div>';
+    '<div class="panel"><div class="panel-head"><h2>🔗 Data Sources & Credits</h2><span class="meta">transparency</span></div>' +
+    '<div class="source-list" id="sourceList">' +
+    '<div style="padding:18px;">' +
+      '<div class="shimmer-line" style="width:80%;margin-bottom:14px;height:14px;"></div>' +
+      '<div class="shimmer-line" style="width:60%;margin-bottom:14px;height:14px;"></div>' +
+      '<div class="shimmer-line" style="width:70%;height:14px;"></div>' +
+    '</div>' +
+    '</div></div>';
 
   fetch(API_BASE + '/api/source-status').then(function(r){ return r.json(); }).then(function(data){
     var liveRows = data.sources.map(function(s){
       var valueHtml = '<a href="' + s.url + '" target="_blank" rel="noopener">' + s.detail + '</a>';
       var statusHtml = s.active
-        ? '<span class="status-tag status-verified"><i></i>Active</span>'
-        : '<span class="status-tag status-flagged"><i></i>Not yet configured</span>';
+        ? '<span class="status-tag status-verified">● Active</span>'
+        : '<span class="status-tag status-flagged">● Not yet configured</span>';
       return '<div class="source-row">' +
         '<div class="source-label">' + s.name + '</div>' +
         '<div class="source-value">' + valueHtml + '</div>' +
@@ -582,21 +1272,24 @@ function renderSources(){
   });
 }
 
+// ═══════════════════════════════════════════════════════════════
+// SUBMIT
+// ═══════════════════════════════════════════════════════════════
 function renderSubmit(){
   var cities = citiesCache || [];
   function draw(){
     var opts = cities.map(function(c){ return '<option value="' + c.id + '">' + c.name + '</option>'; }).join('');
     var typeOpts = Object.keys(EVENT_LABELS).map(function(k){ return '<option value="' + k + '">' + EVENT_LABELS[k] + '</option>'; }).join('');
     el('content').innerHTML =
-      '<div class="panel"><div class="form-panel">' +
+      '<div class="panel"><div class="panel-head"><h2>📝 Submit a Weather Report</h2></div><div class="form-panel">' +
       '<form id="reportForm">' +
       '<div class="field"><label>City</label><select id="fCity">' + opts + '</select></div>' +
-      '<div class="field"><label>Event type</label><select id="fType">' + typeOpts + '</select></div>' +
+      '<div class="field"><label>Event Type</label><select id="fType">' + typeOpts + '</select></div>' +
       '<div class="field"><label>Description</label><textarea id="fDesc" placeholder="What are you seeing right now?"></textarea></div>' +
       '<div class="field"><label>Photo (optional — checked for recycled/duplicate images)</label>' +
-        '<div class="file-drop" id="fileDrop"><span id="fileDropLabel">Click to attach a photo</span><input type="file" id="fPhoto" accept="image/*" class="hidden"><img id="filePreview" class="hidden"></div>' +
+        '<div class="file-drop" id="fileDrop"><span style="font-size:24px;margin-bottom:4px;">📷</span><span id="fileDropLabel">Click or drag to attach a photo</span><input type="file" id="fPhoto" accept="image/*" class="hidden"><img id="filePreview" class="hidden"></div>' +
       '</div>' +
-      '<button type="submit" class="btn" id="submitBtn">Submit &amp; verify against live data</button>' +
+      '<button type="submit" class="btn" id="submitBtn">Submit & verify against live data</button>' +
       '</form><div class="result" id="result"></div>' +
       '</div></div>';
 
@@ -651,7 +1344,7 @@ function renderSubmit(){
         btn.disabled = false; btn.textContent = 'Submit & verify against live data';
         el('reportForm').reset();
         filePreview.classList.add('hidden');
-        fileDropLabel.textContent = 'Click to attach a photo';
+        fileDropLabel.textContent = 'Click or drag to attach a photo';
       }).catch(function(){
         btn.disabled = false; btn.textContent = 'Submit & verify against live data';
         alert('Something went wrong reaching the server.');
@@ -662,6 +1355,9 @@ function renderSubmit(){
   else fetch(API_BASE + '/api/cities').then(function(r){ return r.json(); }).then(function(c){ citiesCache = c; cities = c; draw(); });
 }
 
+// ═══════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════
 render();
 </script>
 </body>
