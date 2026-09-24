@@ -290,6 +290,7 @@ nav button .tab-icon { font-size: 14px; }
 .leaflet-popup-content { font-family: var(--font-ui) !important; font-size: 12.5px !important; margin: 12px 14px !important; line-height: 1.55 !important; }
 .leaflet-popup-tip { background: var(--bg-panel-solid) !important; }
 .leaflet-container { font-family: var(--font-ui) !important; }
+.leaflet-tile-pane { filter: invert(1) hue-rotate(200deg) brightness(0.8) contrast(1.1) saturate(0.3); }
 .leaflet-control-attribution { background: rgba(6,11,24,0.75) !important; color: var(--text-faint) !important; font-size: 9px !important; }
 .leaflet-control-attribution a { color: var(--text-dim) !important; }
 
@@ -1148,10 +1149,10 @@ function initMap(cities){
 
   leafletMap = L.map('mapEl', { scrollWheelZoom: false }).setView([22.9, 79.5], 5);
 
-  // Dark-themed tiles
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  // Dark-themed via CSS filter on standard OSM tiles (no API key needed)
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 12,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> · <a href="https://carto.com/">CARTO</a>'
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
   }).addTo(leafletMap);
 
   markersByCity = {};
