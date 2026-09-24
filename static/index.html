@@ -4,10 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Weather Data Analysis — Live</title>
+<link rel="manifest" href="/manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   :root{
     --ink:#0D1F1B; --panel:#12302A; --panel-2:#183A32; --panel-3:#1E463C;
@@ -19,132 +21,688 @@
     --pending:#6FA6C9; --pending-dim: rgba(111,166,201,0.14);
     --flood:#4FA0DC; --heatwave:#E0942F; --fog:#93B3A5;
     --font-ui:'IBM Plex Sans',system-ui,sans-serif; --font-mono:'IBM Plex Mono',ui-monospace,monospace;
+    
+    --risk-low: #4FAE7E; --risk-low-dim: rgba(79,174,126,0.14);
+    --risk-medium: #E0942F; --risk-medium-dim: rgba(224,148,47,0.14);
+    --risk-high: #DC6A50; --risk-high-dim: rgba(220,106,80,0.14);
+    --risk-critical: #C84630; --risk-critical-dim: rgba(200,70,48,0.14);
   }
-  *{box-sizing:border-box;} body{margin:0;background:var(--ink);color:var(--text);font-family:var(--font-ui);}
-  .wrap{max-width:1040px;margin:0 auto;padding:32px 22px 70px;}
-  header{margin-bottom:26px;}
-  header h1{font-size:22px;margin:0 0 6px;}
-  header p{margin:0;color:var(--text-dim);font-size:13.5px;max-width:640px;line-height:1.5;}
-  .badge-live{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px;color:var(--verified);margin-bottom:10px;}
-  .badge-live i{width:7px;height:7px;border-radius:50%;background:var(--verified);}
-  nav{display:flex;gap:8px;margin-bottom:22px;border-bottom:1px solid var(--line);}
-  nav button{background:none;border:none;color:var(--text-faint);font-family:var(--font-ui);font-size:13px;padding:10px 4px;cursor:pointer;border-bottom:2px solid transparent;margin-right:18px;}
-  nav button.active{color:var(--text);border-bottom-color:var(--saffron);}
-  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:18px;}
-  .panel-head{padding:13px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;}
-  .panel-head h2{font-size:13px;font-weight:600;margin:0;}
-  .panel-head .meta{font-family:var(--font-mono);font-size:10.5px;color:var(--text-faint);}
 
-  #mapEl{ height:440px; width:100%; background:var(--panel-2); }
-  .leaflet-popup-content-wrapper{ background:var(--panel-3); color:var(--text); border-radius:8px; }
-  .leaflet-popup-content{ font-family:var(--font-ui); font-size:12.5px; margin:10px 12px; }
-  .leaflet-popup-tip{ background:var(--panel-3); }
-  .leaflet-container{ font-family:var(--font-ui); }
+  [data-theme='light'] {
+    --ink: #F4F7F5; --panel: #FFFFFF; --panel-2: #F0F4F2; --panel-3: #E8EDEA;
+    --line: rgba(13,31,27,0.08); --line-strong: rgba(13,31,27,0.15);
+    --text: #0D1F1B; --text-dim: #4A6258; --text-faint: #7A9A8E;
+    
+    --saffron: #D67A12;
+  }
 
-  .legend{display:flex;gap:14px;padding:12px 16px;flex-wrap:wrap;border-top:1px solid var(--line);}
-  .legend span{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-dim);font-family:var(--font-mono);}
-  .legend i{width:8px;height:8px;border-radius:50%;display:inline-block;}
+  * { box-sizing:border-box; } 
+  body { margin:0; background:var(--ink); color:var(--text); font-family:var(--font-ui); transition: background 0.3s, color 0.3s; }
+  .wrap { max-width:1040px; margin:0 auto; padding:32px 22px 70px; }
+  
+  header { margin-bottom:26px; display: flex; justify-content: space-between; align-items: flex-start; }
+  header .header-main { flex: 1; }
+  header h1 { font-size:22px; margin:0 0 6px; }
+  header p { margin:0; color:var(--text-dim); font-size:13.5px; max-width:640px; line-height:1.5; }
+  .badge-live { display:inline-flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:11px; color:var(--verified); margin-bottom:10px; }
+  .badge-live i { width:7px; height:7px; border-radius:50%; background:var(--verified); }
+  
+  .theme-toggle { background: var(--panel-2); border: 1px solid var(--line); border-radius: 20px; padding: 6px 12px; cursor: pointer; color: var(--text); font-size: 14px; }
+  .theme-toggle:hover { background: var(--panel-3); }
 
-  .city-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;padding:16px;}
-  .city-card{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:12px;}
-  .city-card .name{font-weight:600;font-size:13.5px;margin-bottom:4px;}
-  .city-card .cond{font-family:var(--font-mono);font-size:11.5px;color:var(--text-dim);margin-top:6px;}
-  .city-card .loading{color:var(--text-faint);font-size:11.5px;font-family:var(--font-mono);}
+  nav { display:flex; flex-wrap: wrap; gap:8px; margin-bottom:22px; border-bottom:1px solid var(--line); }
+  nav button { background:none; border:none; color:var(--text-faint); font-family:var(--font-ui); font-size:13px; padding:10px 4px; cursor:pointer; border-bottom:2px solid transparent; margin-right:18px; }
+  nav button.active { color:var(--text); border-bottom-color:var(--saffron); }
+  
+  .auto-refresh-badge { margin-left: auto; align-self: center; font-size: 11px; color: var(--text-dim); font-family: var(--font-mono); display: none; }
 
-  .feed-item{display:flex;gap:12px;padding:13px 16px;border-left:3px solid var(--line-strong);border-bottom:1px solid var(--line);}
-  .feed-thumb{width:56px;height:56px;object-fit:cover;border-radius:6px;flex:none;background:var(--panel-2);}
-  .feed-item.status-verified{border-left-color:var(--verified);}
-  .feed-item.status-flagged{border-left-color:var(--flagged);}
-  .feed-item.status-pending{border-left-color:var(--pending);}
-  .feed-desc{margin:0 0 5px;font-size:13px;}
-  .feed-meta{font-family:var(--font-mono);font-size:10.8px;color:var(--text-faint);display:flex;gap:10px;flex-wrap:wrap;}
-  .status-tag{font-family:var(--font-mono);font-size:10.2px;}
-  .status-tag.status-verified{color:var(--verified);} .status-tag.status-flagged{color:var(--flagged);} .status-tag.status-pending{color:var(--pending);}
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; margin-bottom:18px; }
+  .panel-head { padding:13px 16px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; }
+  .panel-head h2 { font-size:13px; font-weight:600; margin:0; }
+  .panel-head .meta { font-family:var(--font-mono); font-size:10.5px; color:var(--text-faint); }
 
-  .form-panel{padding:18px;max-width:560px;}
-  .field{margin-bottom:16px;} .field label{display:block;font-size:12px;color:var(--text-dim);margin-bottom:6px;}
-  .field input,.field select,.field textarea{width:100%;background:var(--panel-2);border:1px solid var(--line-strong);border-radius:7px;padding:10px 11px;color:var(--text);font-family:var(--font-ui);font-size:13.5px;}
-  .field textarea{min-height:74px;resize:vertical;}
-  .file-drop{border:1px dashed var(--line-strong);border-radius:8px;padding:16px;text-align:center;color:var(--text-faint);font-size:12px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;}
-  .file-drop:hover{border-color:var(--saffron);color:var(--text-dim);}
-  .file-drop img{max-height:100px;border-radius:6px;margin-top:6px;}
-  .hidden{display:none !important;}
-  .btn{border:none;border-radius:8px;padding:11px 18px;font-size:13.5px;font-weight:600;cursor:pointer;background:var(--saffron);color:#1A1005;}
-  .btn:disabled{opacity:0.5;cursor:default;}
-  .result{margin-top:16px;padding:14px;border-radius:8px;display:none;}
-  .result.show{display:block;}
-  .result.ok{background:var(--verified-dim);} .result.bad{background:var(--flagged-dim);}
-  .result h3{margin:0 0 6px;font-size:13.5px;} .result p{margin:0;font-size:12.5px;color:var(--text-dim);line-height:1.5;}
-  .empty{padding:24px;color:var(--text-faint);font-size:12.5px;}
+  /* Skeletons */
+  .skeleton {
+      background: linear-gradient(90deg, var(--panel-2) 25%, var(--panel-3) 50%, var(--panel-2) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+      border-radius: 6px;
+      color: transparent !important;
+  }
+  .skeleton * { visibility: hidden; }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
-  .source-list{padding:6px 0;}
-  .source-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;padding:14px 16px;border-bottom:1px solid var(--line);}
-  .source-row:last-child{border-bottom:none;}
-  .source-label{flex:0 0 240px;font-weight:600;font-size:12.5px;color:var(--text);}
-  .source-value{flex:1;min-width:180px;font-size:12px;color:var(--text-dim);font-family:var(--font-mono);}
-  .source-value a{color:var(--saffron);text-decoration:none;}
-  .source-value a:hover{text-decoration:underline;}
-  .source-status{flex:0 0 150px;text-align:right;}
-  @media (max-width:700px){ .source-label{flex-basis:100%;} .source-status{flex-basis:100%;text-align:left;} }
+  /* Toast */
+  .toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; }
+  .toast { padding: 12px 18px; border-radius: 8px; font-size: 13px; animation: slideIn 0.3s ease; background: var(--panel-3); color: var(--text); border: 1px solid var(--line-strong); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+  .toast.success { border-left: 4px solid var(--verified); }
+  .toast.error { border-left: 4px solid var(--flagged); }
+  .toast.info { border-left: 4px solid var(--pending); }
+  @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+  /* Generic Grid */
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 16px; }
+  .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 16px; }
+  .stat-card { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 16px; text-align: center; }
+  .stat-card .val { font-size: 24px; font-weight: 600; margin-bottom: 4px; }
+  .stat-card .lbl { font-size: 12px; color: var(--text-dim); }
+
+  /* Map */
+  #mapEl { height:440px; width:100%; background:var(--panel-2); }
+  .leaflet-popup-content-wrapper { background:var(--panel-3); color:var(--text); border-radius:8px; }
+  .leaflet-popup-content { font-family:var(--font-ui); font-size:12.5px; margin:10px 12px; }
+  .leaflet-popup-tip { background:var(--panel-3); }
+  .leaflet-container { font-family:var(--font-ui); }
+
+  .legend { display:flex; gap:14px; padding:12px 16px; flex-wrap:wrap; border-top:1px solid var(--line); }
+  .legend span { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-dim); font-family:var(--font-mono); }
+  .legend i { width:8px; height:8px; border-radius:50%; display:inline-block; }
+
+  /* City Grid */
+  .city-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:12px; padding:16px; }
+  .city-card { background:var(--panel-2); border:1px solid var(--line); border-radius:8px; padding:12px; cursor: pointer; transition: border-color 0.2s; }
+  .city-card:hover { border-color: var(--text-dim); }
+  .city-card.active { border-color: var(--saffron); }
+  .city-card .name { font-weight:600; font-size:13.5px; margin-bottom:4px; }
+  .city-card .cond { font-family:var(--font-mono); font-size:11.5px; color:var(--text-dim); margin-top:6px; }
+  .city-card .loading { color:var(--text-faint); font-size:11.5px; font-family:var(--font-mono); }
+  .risk-badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; }
+  .risk-LOW { background: var(--risk-low-dim); color: var(--risk-low); }
+  .risk-MEDIUM, .risk-MODERATE { background: var(--risk-medium-dim); color: var(--risk-medium); }
+  .risk-HIGH { background: var(--risk-high-dim); color: var(--risk-high); }
+  .risk-CRITICAL { background: var(--risk-critical-dim); color: var(--risk-critical); }
+  .risk-badge-large { padding: 4px 10px; font-size: 12px; border-radius: 6px; }
+
+  /* Reports Feed */
+  .feed-filters { padding: 12px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; flex-wrap: wrap; }
+  .filter-btn { background: var(--panel-2); border: 1px solid var(--line); color: var(--text-dim); padding: 4px 12px; border-radius: 12px; font-size: 12px; cursor: pointer; }
+  .filter-btn.active { background: var(--panel-3); color: var(--text); border-color: var(--saffron); }
+  
+  .feed-item { display:flex; gap:12px; padding:13px 16px; border-left:3px solid var(--line-strong); border-bottom:1px solid var(--line); }
+  .feed-thumb { width:56px; height:56px; object-fit:cover; border-radius:6px; flex:none; background:var(--panel-2); }
+  .feed-item.status-verified { border-left-color:var(--verified); }
+  .feed-item.status-flagged { border-left-color:var(--flagged); }
+  .feed-item.status-pending { border-left-color:var(--pending); }
+  .feed-desc { margin:0 0 5px; font-size:13px; }
+  .feed-meta { font-family:var(--font-mono); font-size:10.8px; color:var(--text-faint); display:flex; gap:10px; flex-wrap:wrap; }
+  .status-tag { font-family:var(--font-mono); font-size:10.2px; }
+  .status-tag.status-verified { color:var(--verified); } .status-tag.status-flagged { color:var(--flagged); } .status-tag.status-pending { color:var(--pending); }
+
+  /* Submit Form */
+  .form-panel { padding:18px; max-width:560px; }
+  .field { margin-bottom:16px; } 
+  .field label { display:block; font-size:12px; color:var(--text-dim); margin-bottom:6px; }
+  .field input, .field select, .field textarea { width:100%; background:var(--panel-2); border:1px solid var(--line-strong); border-radius:7px; padding:10px 11px; color:var(--text); font-family:var(--font-ui); font-size:13.5px; }
+  .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--saffron); }
+  .field textarea { min-height:74px; resize:vertical; }
+  .file-drop { border:1px dashed var(--line-strong); border-radius:8px; padding:16px; text-align:center; color:var(--text-faint); font-size:12px; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:6px; }
+  .file-drop:hover { border-color:var(--saffron); color:var(--text-dim); }
+  .file-drop img { max-height:100px; border-radius:6px; margin-top:6px; }
+  .hidden { display:none !important; }
+  .btn { border:none; border-radius:8px; padding:11px 18px; font-size:13.5px; font-weight:600; cursor:pointer; background:var(--saffron); color:#1A1005; }
+  .btn:disabled { opacity:0.5; cursor:default; }
+  .result { margin-top:16px; padding:14px; border-radius:8px; display:none; }
+  .result.show { display:block; }
+  .result.ok { background:var(--verified-dim); } .result.bad { background:var(--flagged-dim); }
+  .result h3 { margin:0 0 6px; font-size:13.5px; } .result p { margin:0; font-size:12.5px; color:var(--text-dim); line-height:1.5; }
+  .empty { padding:24px; color:var(--text-faint); font-size:12.5px; }
+
+  /* Sources */
+  .source-list { padding:6px 0; }
+  .source-row { display:flex; flex-wrap:wrap; align-items:center; gap:6px 18px; padding:14px 16px; border-bottom:1px solid var(--line); }
+  .source-row:last-child { border-bottom:none; }
+  .source-label { flex:0 0 240px; font-weight:600; font-size:12.5px; color:var(--text); }
+  .source-value { flex:1; min-width:180px; font-size:12px; color:var(--text-dim); font-family:var(--font-mono); }
+  .source-value a { color:var(--saffron); text-decoration:none; }
+  .source-value a:hover { text-decoration:underline; }
+  .source-status { flex:0 0 150px; text-align:right; }
+
+  /* Impact Detail Layout */
+  .impact-layout { display: flex; flex-direction: column; gap: 16px; padding: 16px; }
+  .impact-header { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
+  
+  .risk-circle { width: 80px; height: 80px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold; background: conic-gradient(var(--saffron) calc(var(--val) * 1%), var(--panel-3) 0); position: relative; }
+  .risk-circle::after { content: ''; position: absolute; inset: 6px; background: var(--panel); border-radius: 50%; }
+  .risk-circle span { position: relative; z-index: 1; }
+  
+  .early-warning-card { background: var(--risk-medium-dim); border: 1px solid var(--risk-medium); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  .early-warning-card.severity-high { background: var(--risk-high-dim); border-color: var(--risk-high); }
+  .early-warning-card.severity-critical { background: var(--risk-critical-dim); border-color: var(--risk-critical); }
+  .ew-title { font-weight: bold; margin-bottom: 4px; font-size: 14px; }
+  .ew-desc { font-size: 12px; color: var(--text-dim); }
+
+  .sector-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .sector-card { background: var(--panel-2); padding: 12px; border-radius: 8px; border: 1px solid var(--line); }
+  .sector-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-weight: bold; font-size: 13px; }
+  
+  .infra-bar-container { display: flex; flex-direction: column; gap: 8px; }
+  .infra-bar { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .infra-bar-label { width: 100px; color: var(--text-dim); }
+  .infra-bar-track { flex: 1; height: 8px; background: var(--panel-3); border-radius: 4px; overflow: hidden; }
+  .infra-bar-fill { height: 100%; background: var(--risk-high); }
+  
+  .pop-strip { background: var(--panel-2); padding: 12px; border-radius: 8px; display: flex; gap: 16px; border: 1px solid var(--line); margin-bottom: 16px; align-items: center; }
+  
+  /* Forecast specific */
+  .forecast-row { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+  .forecast-card { min-width: 120px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 12px; text-align: center; }
+  .fc-icon { font-size: 24px; margin: 8px 0; }
+  .fc-date { font-size: 12px; color: var(--text-dim); font-weight: bold; }
+  .fc-temp { font-size: 14px; margin-bottom: 4px; }
+  .fc-detail { font-size: 11px; color: var(--text-faint); }
+  
+  .chart-container { position: relative; height: 250px; width: 100%; margin-top: 16px; }
+
+  @media (max-width:700px){
+    .source-label { flex-basis:100%; } 
+    .source-status { flex-basis:100%; text-align:left; } 
+    .grid-4, .grid-2 { grid-template-columns: 1fr; }
+    #mapEl { height: 300px; }
+    .pop-strip { flex-direction: column; align-items: flex-start; gap: 8px; }
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <div class="badge-live"><i></i>LIVE — pulling real weather data from Open-Meteo</div>
-    <h1>Weather Data Analysis</h1>
-    <p>This runs on a real backend. Map and city conditions below are fetched live; reports you submit are checked against that live data and stored in a real database.</p>
+    <div class="header-main">
+      <div class="badge-live"><i></i>LIVE — pulling real weather data</div>
+      <h1>Weather Data Analysis</h1>
+      <p>This runs on a real backend. Map and city conditions below are fetched live; reports you submit are checked against that live data and stored in a real database.</p>
+    </div>
+    <button class="theme-toggle" id="themeToggle" title="Toggle Theme">🌙</button>
   </header>
-  <nav>
-    <button data-tab="map" class="active">Map</button>
-    <button data-tab="feed">Report feed</button>
+  
+  <nav id="mainNav">
+    <button data-tab="dashboard" class="active">Dashboard</button>
+    <button data-tab="impact">Impact Forecast</button>
+    <button data-tab="forecast">Forecast</button>
+    <button data-tab="map">Map</button>
+    <button data-tab="feed">Reports</button>
     <button data-tab="submit">Submit report</button>
     <button data-tab="sources">Sources</button>
+    <span class="auto-refresh-badge" id="refreshBadge">Last updated: now</span>
   </nav>
+  
   <div id="content"></div>
 </div>
 
+<div class="toast-container" id="toastContainer"></div>
+
 <script>
-// When the frontend and backend are hosted separately (Vercel + Render),
-// point this at your Render backend's URL, e.g.:
-//   var API_BASE = 'https://weather-data-analysis.onrender.com';
-// Leave it as '' when running both locally on the same machine.
-var API_BASE = '';
+var API_BASE = 'https://weather-data-analysis-63zg.onrender.com';
 
 var EVENT_LABELS = { flood:'Flood', storm:'Thunderstorm / heavy rain', heatwave:'Heatwave', fog:'Fog', clear:'Clear conditions' };
 var CONDITION_COLOR = {
   flood: 'var(--flood)', storm: 'var(--flagged)', heatwave: 'var(--heatwave)',
   fog: 'var(--fog)', clear: 'var(--verified)'
 };
-var currentTab = 'map';
+var WEATHER_ICONS = { clear: '☀️', fog: '🌫️', storm: '⛈️', flood: '🌊', heatwave: '🔥', dust: '🌪️', default: '☁️' };
+
+var currentTab = 'dashboard';
 var citiesCache = null;
 var leafletMap = null;
+var markersByCity = {};
+var charts = []; // Keep track to destroy them
+var refreshInterval = null;
+var refreshCountdown = null;
+var lastFetchTime = Date.now();
+
+// Theme setup
+var currentTheme = localStorage.getItem('theme') || 'dark';
+document.documentElement.setAttribute('data-theme', currentTheme);
+updateThemeToggleIcon();
+
+document.getElementById('themeToggle').addEventListener('click', function() {
+  currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', currentTheme);
+  localStorage.setItem('theme', currentTheme);
+  updateThemeToggleIcon();
+  // Redraw charts to update colors
+  if (currentTab === 'forecast') renderForecast();
+});
+
+function updateThemeToggleIcon() {
+  document.getElementById('themeToggle').textContent = currentTheme === 'dark' ? '☀️' : '🌙';
+}
 
 function el(id){ return document.getElementById(id); }
 function cssVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name.replace('var(','').replace(')','')).trim(); }
 function resolveColor(v){
-  // v is like 'var(--flood)' — resolve to an actual hex for Leaflet, which doesn't understand CSS vars.
   if (v.indexOf('var(') === 0) return cssVar(v);
   return v;
 }
+function getIconForCondition(cond) {
+  if (!cond) return WEATHER_ICONS.default;
+  var key = cond.toLowerCase();
+  for (var k in WEATHER_ICONS) {
+    if (key.indexOf(k) !== -1) return WEATHER_ICONS[k];
+  }
+  return WEATHER_ICONS.default;
+}
 
-document.querySelectorAll('nav button').forEach(function(b){
+// Toast System
+function showToast(msg, type) {
+  var container = el('toastContainer');
+  var toast = document.createElement('div');
+  toast.className = 'toast ' + (type || 'info');
+  toast.textContent = msg;
+  container.appendChild(toast);
+  setTimeout(function() {
+    toast.style.opacity = '0';
+    setTimeout(function() { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 300);
+  }, 4000);
+}
+
+// Tab Switching
+document.querySelectorAll('#mainNav button').forEach(function(b){
   b.addEventListener('click', function(){
-    document.querySelectorAll('nav button').forEach(function(x){ x.classList.remove('active'); });
+    document.querySelectorAll('#mainNav button').forEach(function(x){ x.classList.remove('active'); });
     b.classList.add('active');
     currentTab = b.dataset.tab;
-    leafletMap = null; // force re-init if we come back to Map tab
+    leafletMap = null;
+    destroyCharts();
     render();
   });
 });
 
-function render(){
-  if (currentTab === 'map') renderMapTab();
+function setupAutoRefresh() {
+  clearInterval(refreshInterval);
+  clearInterval(refreshCountdown);
+  var badge = el('refreshBadge');
+  
+  if (currentTab === 'dashboard' || currentTab === 'impact') {
+    badge.style.display = 'block';
+    lastFetchTime = Date.now();
+    
+    refreshCountdown = setInterval(function() {
+      var seconds = Math.floor((Date.now() - lastFetchTime) / 1000);
+      var left = 60 - seconds;
+      if (left < 0) left = 0;
+      badge.textContent = 'Last updated: ' + seconds + 's ago (Refresh in ' + left + 's)';
+    }, 1000);
+    
+    refreshInterval = setInterval(function() {
+      lastFetchTime = Date.now();
+      render(true); // pass true to indicate refresh
+    }, 60000);
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function destroyCharts() {
+  charts.forEach(function(c) { c.destroy(); });
+  charts = [];
+}
+
+function render(isRefresh){
+  if (!isRefresh) setupAutoRefresh();
+  
+  if (currentTab === 'dashboard') renderDashboard(isRefresh);
+  else if (currentTab === 'impact') renderImpact(isRefresh);
+  else if (currentTab === 'forecast') renderForecast();
+  else if (currentTab === 'map') renderMapTab();
   else if (currentTab === 'feed') renderFeed();
   else if (currentTab === 'sources') renderSources();
   else renderSubmit();
 }
 
+/* ================= DASHBOARD ================= */
+function renderDashboard(isRefresh) {
+  if (!isRefresh) {
+    el('content').innerHTML = 
+      '<div class="grid-4" id="dashStats">' +
+        '<div class="stat-card skeleton"><div class="val">0</div><div class="lbl">Total Reports</div></div>'.repeat(4) +
+      '</div>' +
+      '<div class="grid-2">' +
+        '<div class="panel"><div class="panel-head"><h2>City Risk Overview</h2></div><div class="city-grid" id="dashCityRisk"><div class="empty skeleton">Loading...</div></div></div>' +
+        '<div class="panel"><div class="panel-head"><h2>Recent Reports</h2></div><div id="dashReports"><div class="empty skeleton">Loading...</div></div></div>' +
+      '</div>';
+  }
+
+  Promise.all([
+    fetch(API_BASE + '/api/analytics/summary').then(function(r){ return r.json(); }).catch(function(){ return {}; }),
+    fetch(API_BASE + '/api/impact-forecast').then(function(r){ return r.json(); }).catch(function(){ return []; })
+  ]).then(function(results) {
+    var summary = results[0];
+    var impact = results[1];
+    
+    // Stats
+    if (summary.total_reports !== undefined) {
+      el('dashStats').innerHTML = 
+        '<div class="stat-card"><div class="val">' + (summary.total_reports || 0) + '</div><div class="lbl">Total Reports</div></div>' +
+        '<div class="stat-card"><div class="val">' + Math.round(summary.verified_pct || 0) + '%</div><div class="lbl">Verified %</div></div>' +
+        '<div class="stat-card"><div class="val">' + (impact.filter(function(c){ return c.risk_level === 'HIGH' || c.risk_level === 'CRITICAL'; }).length || 0) + '</div><div class="lbl">Cities High Risk+</div></div>' +
+        '<div class="stat-card"><div class="val risk-badge risk-badge-large risk-' + (summary.top_event_type ? 'HIGH' : 'LOW') + '">' + (summary.top_event_type ? 'ELEVATED' : 'NORMAL') + '</div><div class="lbl">National Risk</div></div>';
+    }
+
+    // City Risk Grid
+    if (impact.length) {
+      el('dashCityRisk').innerHTML = impact.map(function(c) {
+        return '<div class="city-card" style="padding:8px;">' +
+          '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+            '<span style="font-weight:bold; font-size:12px;">' + c.city_name + '</span>' +
+            '<span class="risk-badge risk-' + c.risk_level + '">' + c.risk_score + '</span>' +
+          '</div>' +
+          '<div class="cond">' + (c.weather ? c.weather.condition_label : 'Unknown') + '</div>' +
+        '</div>';
+      }).join('');
+    } else {
+      el('dashCityRisk').innerHTML = '<div class="empty">No risk data available</div>';
+    }
+
+    // Recent Reports
+    if (summary.recent_reports && summary.recent_reports.length) {
+      el('dashReports').innerHTML = summary.recent_reports.slice(0, 5).map(function(r) {
+        var statusClass = r.status === 'verified' ? 'status-verified' : (r.status === 'flagged' ? 'status-flagged' : 'status-pending');
+        return '<div class="feed-item ' + statusClass + '" style="padding: 10px;">' +
+          '<div style="flex:1;">' +
+            '<div style="display:flex; justify-content:space-between; margin-bottom:4px;">' +
+              '<span class="status-tag ' + statusClass + '">' + r.status.toUpperCase() + '</span>' +
+              '<span class="feed-meta">' + r.city_id + '</span>' +
+            '</div>' +
+            '<p class="feed-desc" style="font-size:12px; margin:0;">' + r.description + '</p>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    } else {
+      el('dashReports').innerHTML = '<div class="empty">No recent reports</div>';
+    }
+  });
+}
+
+/* ================= IMPACT FORECAST ================= */
+var currentImpactCityId = null;
+
+function renderImpact(isRefresh) {
+  if (!isRefresh) {
+    el('content').innerHTML = 
+      '<div class="panel" style="background:var(--panel-2);">' +
+        '<div class="panel-head" style="border:none;">' +
+          '<div style="display:flex; gap:20px; align-items:center; width:100%;">' +
+            '<div><span class="risk-badge risk-badge-large risk-HIGH" id="natlRiskBadge">ELEVATED</span> <span style="font-size:12px; color:var(--text-dim); margin-left:8px;">National Risk Level</span></div>' +
+            '<div style="font-size:12px; color:var(--text-dim);">Avg Score: <strong style="color:var(--text);" id="natlAvg">--</strong></div>' +
+            '<div style="font-size:12px; color:var(--text-dim);">High+ Risk Cities: <strong style="color:var(--text);" id="natlHigh">--</strong></div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex; gap:16px;">' +
+        '<div style="flex:1; max-width:300px;">' +
+          '<div class="panel"><div class="panel-head"><h2>Cities</h2></div><div class="impact-layout" id="impactCityList" style="padding:8px;"><div class="skeleton" style="height:50px;"></div></div></div>' +
+        '</div>' +
+        '<div style="flex:2;">' +
+          '<div class="panel" id="impactDetail"><div class="empty">Select a city to view detailed impact analysis</div></div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  fetch(API_BASE + '/api/impact-forecast').then(function(r){ return r.json(); }).then(function(cities) {
+    if (!cities.length) return;
+    
+    // Overview updates
+    var highCount = cities.filter(function(c){ return c.risk_level === 'HIGH' || c.risk_level === 'CRITICAL'; }).length;
+    var sum = cities.reduce(function(a,b){ return a + b.risk_score; }, 0);
+    var avg = Math.round(sum / cities.length);
+    if(el('natlAvg')) el('natlAvg').textContent = avg;
+    if(el('natlHigh')) el('natlHigh').textContent = highCount;
+    if(el('natlRiskBadge')) {
+      el('natlRiskBadge').className = 'risk-badge risk-badge-large ' + (avg > 70 ? 'risk-CRITICAL' : (avg > 40 ? 'risk-HIGH' : 'risk-MEDIUM'));
+      el('natlRiskBadge').textContent = avg > 70 ? 'CRITICAL' : (avg > 40 ? 'HIGH' : 'MODERATE');
+    }
+
+    // City List
+    if(el('impactCityList')) {
+      el('impactCityList').innerHTML = cities.map(function(c) {
+        var active = (currentImpactCityId === c.city_id) ? 'active' : '';
+        return '<div class="city-card ' + active + '" onclick="loadImpactDetail(\'' + c.city_id + '\')">' +
+          '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+            '<div>' +
+              '<div class="name">' + c.city_name + '</div>' +
+              '<div class="cond">' + (c.weather ? c.weather.condition_label : 'Unknown') + '</div>' +
+            '</div>' +
+            '<div style="text-align:right;">' +
+              '<div style="font-size:20px; font-weight:bold;">' + c.risk_score + '</div>' +
+              '<div class="risk-badge risk-' + c.risk_level + '">' + c.risk_level + '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    if (!currentImpactCityId && cities.length > 0) {
+      // Auto select highest risk
+      var sorted = cities.slice().sort(function(a,b){ return b.risk_score - a.risk_score; });
+      loadImpactDetail(sorted[0].city_id);
+    } else if (currentImpactCityId && isRefresh) {
+      loadImpactDetail(currentImpactCityId);
+    }
+  });
+}
+
+window.loadImpactDetail = function(cityId) {
+  currentImpactCityId = cityId;
+  renderImpact(true); // redraw list to show active state
+  
+  var detailEl = el('impactDetail');
+  if(!detailEl) return;
+  detailEl.innerHTML = '<div class="impact-layout"><div class="skeleton" style="height:200px;"></div></div>';
+  
+  Promise.all([
+    fetch(API_BASE + '/api/impact-forecast/' + cityId).then(function(r){ return r.json(); }).catch(function(){ return null; }),
+    fetch(API_BASE + '/api/early-warnings/' + cityId).then(function(r){ return r.json(); }).catch(function(){ return []; })
+  ]).then(function(res) {
+    var detail = res[0];
+    var warnings = res[1] || [];
+    if (!detail || detail.error) {
+      detailEl.innerHTML = '<div class="empty">Detail not available</div>';
+      return;
+    }
+    
+    var html = '<div class="panel-head"><h2>' + detail.city_name + ' Impact Analysis</h2></div><div class="impact-layout">';
+    
+    // Header
+    html += '<div class="impact-header">' +
+      '<div class="risk-circle" style="--val:' + detail.risk_score + ';"><span>' + detail.risk_score + '</span></div>' +
+      '<div>' +
+        '<div style="margin-bottom:8px;"><span class="risk-badge risk-badge-large risk-' + detail.risk_level + '">' + detail.risk_level + ' RISK</span></div>' +
+        '<div style="color:var(--text-dim); font-size:14px;">' + (detail.weather ? getIconForCondition(detail.weather.condition) + ' ' + detail.weather.condition_label : '') + '</div>' +
+      '</div>' +
+    '</div>';
+
+    // Warnings
+    if (warnings.length > 0) {
+      html += '<h3>AI Early Warnings</h3>';
+      html += warnings.map(function(w) {
+        return '<div class="early-warning-card severity-' + (w.severity || 'medium').toLowerCase() + '">' +
+          '<div class="ew-title">⚠ ' + w.title + ' (Confidence: ' + (w.confidence*100) + '%)</div>' +
+          '<div class="ew-desc">' + w.description + '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    // Population
+    if (detail.population_affected) {
+      html += '<div class="pop-strip">' +
+        '<div><div style="font-size:12px; color:var(--text-dim);">Est. Population Affected</div><div style="font-size:18px; font-weight:bold;">' + (detail.population_affected.estimated || 0).toLocaleString() + '</div></div>' +
+        '<div><div style="font-size:12px; color:var(--text-dim);">Action</div><div style="font-size:14px; font-weight:bold; color:var(--saffron);">' + (detail.population_affected.evacuation_recommended ? 'Evacuation Recommended' : (detail.population_affected.shelter_advisory ? 'Shelter Advisory' : 'Normal Precautions')) + '</div></div>' +
+      '</div>';
+    }
+
+    // Sectors
+    if (detail.impacts && detail.impacts.length > 0) {
+      html += '<h3>Sector Impacts</h3><div class="sector-grid">';
+      html += detail.impacts.map(function(imp) {
+        return '<div class="sector-card">' +
+          '<div class="sector-header"><span class="risk-badge risk-' + imp.severity + '">' + imp.severity + '</span> ' + imp.sector + '</div>' +
+          '<div style="font-size:12px; color:var(--text-dim); margin-bottom:8px;">' + imp.description + '</div>' +
+          '<div style="font-size:11px; padding:6px; background:var(--panel-3); border-radius:4px;"><strong>Advisory:</strong> ' + imp.advisory + '</div>' +
+        '</div>';
+      }).join('');
+      html += '</div>';
+    }
+
+    // Infra
+    if (detail.vulnerable_infrastructure && detail.vulnerable_infrastructure.length > 0) {
+      html += '<h3>Infrastructure at Risk</h3><div class="infra-bar-container">';
+      html += detail.vulnerable_infrastructure.map(function(inf) {
+        var pct = (inf.count_at_risk / 100) * 100; // Assuming out of 100 or something arbitrary for demo, let's just use it as raw % if small, or limit to 100
+        if(pct > 100) pct = 100;
+        var color = inf.risk === 'HIGH' ? 'var(--risk-high)' : 'var(--risk-medium)';
+        return '<div class="infra-bar">' +
+          '<div class="infra-bar-label">' + inf.type + '</div>' +
+          '<div class="infra-bar-track"><div class="infra-bar-fill" style="width:' + pct + '%; background:' + color + '"></div></div>' +
+          '<div style="width:40px; text-align:right; font-size:11px; font-weight:bold;">' + inf.count_at_risk + '</div>' +
+        '</div>';
+      }).join('');
+      html += '</div>';
+    }
+
+    // Alerts
+    if (detail.alerts && detail.alerts.length > 0) {
+      html += '<h3>Active Alerts</h3>';
+      html += detail.alerts.map(function(al) {
+        return '<div style="padding:10px; border-left:3px solid var(--risk-high); background:var(--panel-2); margin-bottom:8px; border-radius:0 4px 4px 0;">' +
+          '<div style="font-weight:bold; font-size:13px; margin-bottom:4px;">' + al.level + '</div>' +
+          '<div style="font-size:12px; color:var(--text-dim);">' + al.message + '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    html += '</div>';
+    detailEl.innerHTML = html;
+  });
+};
+
+/* ================= FORECAST ================= */
+function renderForecast() {
+  destroyCharts();
+  
+  var html = '<div class="panel"><div class="panel-head" style="gap:16px;">' +
+    '<h2>Forecast</h2>' +
+    '<select id="forecastCitySelect" style="background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:4px 8px; font-family:var(--font-ui);">' +
+      '<option value="">Loading cities...</option>' +
+    '</select>' +
+  '</div><div id="forecastContent" style="padding:16px;"><div class="empty skeleton">Loading...</div></div></div>';
+  
+  el('content').innerHTML = html;
+
+  var p = citiesCache ? Promise.resolve(citiesCache) : fetch(API_BASE + '/api/cities').then(function(r){ return r.json(); });
+  
+  p.then(function(cities) {
+    citiesCache = cities;
+    var sel = el('forecastCitySelect');
+    if(!sel) return;
+    sel.innerHTML = cities.map(function(c){ return '<option value="' + c.id + '">' + c.name + '</option>'; }).join('');
+    
+    sel.addEventListener('change', function() {
+      loadForecastData(this.value);
+    });
+    
+    if(cities.length > 0) {
+      loadForecastData(cities[0].id);
+    }
+  });
+}
+
+function loadForecastData(cityId) {
+  var content = el('forecastContent');
+  if(!content) return;
+  content.innerHTML = '<div class="skeleton" style="height:300px;"></div>';
+  destroyCharts();
+
+  fetch(API_BASE + '/api/forecast/' + cityId).then(function(r){ return r.json(); }).then(function(data) {
+    if(!data || !data.daily) {
+      content.innerHTML = '<div class="empty">Forecast data not available</div>';
+      return;
+    }
+
+    var html = '<div class="forecast-row">';
+    html += data.daily.map(function(d) {
+      var dt = new Date(d.date).toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
+      return '<div class="forecast-card">' +
+        '<div class="fc-date">' + dt + '</div>' +
+        '<div class="fc-icon">' + getIconForCondition(d.condition) + '</div>' +
+        '<div class="fc-temp">' + d.temp_max + '° | <span style="color:var(--text-dim)">' + d.temp_min + '°</span></div>' +
+        '<div class="fc-detail">💧 ' + d.precipitation_sum + 'mm</div>' +
+        '<div class="fc-detail">💨 ' + d.wind_speed_max + 'km/h</div>' +
+      '</div>';
+    }).join('');
+    html += '</div>';
+
+    html += '<div class="grid-2" style="padding:0; margin-top:16px;">' +
+      '<div><h3>Temperature (7 Day)</h3><div class="chart-container"><canvas id="chartTemp"></canvas></div></div>' +
+      '<div><h3>Precipitation (7 Day)</h3><div class="chart-container"><canvas id="chartPrecip"></canvas></div></div>' +
+    '</div>';
+    html += '<div style="margin-top:24px;"><h3>24h Hourly Forecast</h3><div class="chart-container"><canvas id="chartHourly"></canvas></div></div>';
+
+    content.innerHTML = html;
+
+    // Charts
+    Chart.defaults.color = cssVar('--text-dim');
+    Chart.defaults.font.family = cssVar('--font-ui');
+    var gridColor = cssVar('--line-strong');
+
+    // Temp Chart
+    var ctxTemp = document.getElementById('chartTemp');
+    if(ctxTemp) {
+      var chartTemp = new Chart(ctxTemp, {
+        type: 'line',
+        data: {
+          labels: data.daily.map(function(d){ return d.date.substring(5); }),
+          datasets: [
+            { label: 'Max Temp (°C)', data: data.daily.map(function(d){ return d.temp_max; }), borderColor: cssVar('--risk-high'), backgroundColor: cssVar('--risk-high-dim'), fill: '+1', tension: 0.4 },
+            { label: 'Min Temp (°C)', data: data.daily.map(function(d){ return d.temp_min; }), borderColor: cssVar('--pending'), fill: false, tension: 0.4 }
+          ]
+        },
+        options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { color: gridColor } }, y: { grid: { color: gridColor } } } }
+      });
+      charts.push(chartTemp);
+    }
+
+    // Precip Chart
+    var ctxPrecip = document.getElementById('chartPrecip');
+    if(ctxPrecip) {
+      var chartPrecip = new Chart(ctxPrecip, {
+        type: 'bar',
+        data: {
+          labels: data.daily.map(function(d){ return d.date.substring(5); }),
+          datasets: [{ label: 'Precipitation (mm)', data: data.daily.map(function(d){ return d.precipitation_sum; }), backgroundColor: cssVar('--flood') }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { color: gridColor } }, y: { grid: { color: gridColor } } } }
+      });
+      charts.push(chartPrecip);
+    }
+
+    // Hourly Chart
+    if(data.hourly && data.hourly.length) {
+      var ctxHourly = document.getElementById('chartHourly');
+      var h24 = data.hourly.slice(0, 24);
+      if(ctxHourly) {
+        var chartHourly = new Chart(ctxHourly, {
+          data: {
+            labels: h24.map(function(h){ return h.time.substring(11, 16); }),
+            datasets: [
+              { type: 'line', label: 'Temperature (°C)', data: h24.map(function(h){ return h.temperature; }), borderColor: cssVar('--saffron'), yAxisID: 'y', tension: 0.4 },
+              { type: 'bar', label: 'Precipitation (mm)', data: h24.map(function(h){ return h.precipitation; }), backgroundColor: cssVar('--flood'), yAxisID: 'y1' }
+            ]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: {
+              x: { grid: { color: gridColor } },
+              y: { type: 'linear', display: true, position: 'left', grid: { color: gridColor } },
+              y1: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false } }
+            }
+          }
+        });
+        charts.push(chartHourly);
+      }
+    }
+  });
+}
+
+/* ================= MAP ================= */
 function renderMapTab(){
   el('content').innerHTML =
     '<div class="panel">' +
@@ -159,9 +717,10 @@ function renderMapTab(){
       '</div>' +
     '</div>' +
     '<div class="panel"><div class="panel-head"><h2>Tracked cities</h2></div>' +
-    '<div class="city-grid" id="cityGrid"><div class="empty">Loading live weather data…</div></div></div>';
+    '<div class="city-grid" id="cityGrid"><div class="empty skeleton">Loading live weather data…</div></div></div>';
 
-  fetch(API_BASE + '/api/cities').then(function(r){ return r.json(); }).then(function(cities){
+  var p = citiesCache ? Promise.resolve(citiesCache) : fetch(API_BASE + '/api/cities').then(function(r){ return r.json(); });
+  p.then(function(cities){
     citiesCache = cities;
     initMap(cities);
 
@@ -176,7 +735,7 @@ function renderMapTab(){
         if (card){
           card.innerHTML =
             '<div class="name">' + c.name + '</div>' +
-            '<div class="cond">' + g.condition_label + '</div>' +
+            '<div class="cond">' + getIconForCondition(g.condition) + ' ' + g.condition_label + '</div>' +
             '<div class="cond">' + (g.temperature_c != null ? g.temperature_c + '°C' : '—') +
             (g.precipitation_mm != null ? ' · ' + g.precipitation_mm + 'mm/hr' : '') + '</div>';
         }
@@ -189,8 +748,6 @@ function renderMapTab(){
   });
 }
 
-var markersByCity = {};
-
 function initMap(cities){
   var container = el('mapEl');
   if (!container || typeof L === 'undefined') return;
@@ -198,7 +755,7 @@ function initMap(cities){
   leafletMap = L.map('mapEl', { scrollWheelZoom: false }).setView([22.9, 79.5], 5);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 12,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
   }).addTo(leafletMap);
 
   markersByCity = {};
@@ -218,8 +775,11 @@ function colorMarker(cityId, ground){
   var color = resolveColor(CONDITION_COLOR[ground.condition] || 'var(--text-faint)');
   m.setStyle({ color: color, fillColor: color });
   var tempStr = ground.temperature_c != null ? ground.temperature_c + '°C' : '—';
-  var precipStr = ground.precipitation_mm != null ? ' · ' + ground.precipitation_mm + 'mm/hr' : '';
-  m.setPopupContent('<b>' + cityNameById(cityId) + '</b><br>' + ground.condition_label + '<br>' + tempStr + precipStr);
+  var precipStr = ground.precipitation_mm != null ? '<br>💧 ' + ground.precipitation_mm + 'mm/hr' : '';
+  var windStr = ground.wind_speed_kph != null ? '<br>💨 ' + ground.wind_speed_kph + 'km/h' : '';
+  var humStr = ground.humidity != null ? '<br>🌫️ ' + ground.humidity + '%' : '';
+  
+  m.setPopupContent('<b>' + cityNameById(cityId) + '</b><br>' + getIconForCondition(ground.condition) + ' ' + ground.condition_label + '<br>🌡️ ' + tempStr + precipStr + windStr + humStr);
 }
 
 function cityNameById(id){
@@ -228,35 +788,89 @@ function cityNameById(id){
   return id;
 }
 
+/* ================= REPORTS (FEED) ================= */
+var feedFilters = { status: 'all', source: 'all' };
+var allReportsCache = [];
+
 function renderFeed(){
   el('content').innerHTML =
-    '<div class="panel"><div class="panel-head"><h2>Report feed</h2></div><div id="feedList"><div class="empty">Loading…</div></div></div>';
+    '<div class="panel"><div class="panel-head"><h2>Report feed</h2></div>' +
+    '<div class="feed-filters">' +
+      '<div style="margin-right:16px;"><strong>Status:</strong> ' +
+        '<button class="filter-btn active" data-fgroup="status" data-fval="all">All</button> ' +
+        '<button class="filter-btn" data-fgroup="status" data-fval="verified">Verified</button> ' +
+        '<button class="filter-btn" data-fgroup="status" data-fval="flagged">Flagged</button> ' +
+        '<button class="filter-btn" data-fgroup="status" data-fval="pending">Pending</button>' +
+      '</div>' +
+      '<div><strong>Source:</strong> ' +
+        '<button class="filter-btn active" data-fgroup="source" data-fval="all">All</button> ' +
+        '<button class="filter-btn" data-fgroup="source" data-fval="Citizen App">Citizen App</button> ' +
+        '<button class="filter-btn" data-fgroup="source" data-fval="Reddit">Reddit</button> ' +
+        '<button class="filter-btn" data-fgroup="source" data-fval="NASA EONET">NASA EONET</button>' +
+      '</div>' +
+    '</div>' +
+    '<div id="feedList"><div class="empty skeleton">Loading…</div></div></div>';
+    
   fetch(API_BASE + '/api/reports').then(function(r){ return r.json(); }).then(function(reports){
-    var list = el('feedList');
-    if (!reports.length){ list.innerHTML = '<div class="empty">No reports yet — submit one from the Submit tab.</div>'; return; }
-    list.innerHTML = reports.map(function(r){
-      var when = new Date(r.created_at * 1000).toLocaleString('en-IN');
-      var statusText;
-      if (r.status === 'verified') statusText = 'Verified';
-      else if (r.status === 'pending') statusText = 'Pending';
-      else if (r.flag_reason === 'duplicate_image') statusText = 'Flagged — duplicate image';
-      else statusText = 'Flagged — no matching ground data';
-
-      var thumbHtml = r.photo_path
-        ? '<img class="feed-thumb" src="' + API_BASE + r.photo_path + '" alt="submitted photo">'
-        : '';
-
-      return '<div class="feed-item status-' + r.status + '">' +
-        thumbHtml +
-        '<div style="flex:1;">' +
-        '<span class="status-tag status-' + r.status + '">' + statusText + '</span>' +
-        '<p class="feed-desc">' + r.description + '</p>' +
-        '<div class="feed-meta"><span>' + r.source + '</span><span>' + r.city_id + '</span><span>' + when + '</span></div>' +
-        '</div></div>';
-    }).join('');
+    allReportsCache = reports;
+    bindFeedFilters();
+    updateFeedList();
   });
 }
 
+function bindFeedFilters() {
+  document.querySelectorAll('.filter-btn').forEach(function(b) {
+    b.addEventListener('click', function() {
+      var group = this.dataset.fgroup;
+      var val = this.dataset.fval;
+      feedFilters[group] = val;
+      
+      document.querySelectorAll('.filter-btn[data-fgroup="'+group+'"]').forEach(function(btn){ btn.classList.remove('active'); });
+      this.classList.add('active');
+      
+      updateFeedList();
+    });
+  });
+}
+
+function updateFeedList() {
+  var list = el('feedList');
+  if (!allReportsCache.length){ list.innerHTML = '<div class="empty">No reports yet — submit one from the Submit tab.</div>'; return; }
+  
+  var filtered = allReportsCache.filter(function(r) {
+    if (feedFilters.status !== 'all' && r.status !== feedFilters.status) return false;
+    if (feedFilters.source !== 'all' && r.source !== feedFilters.source) return false;
+    return true;
+  });
+
+  if (!filtered.length) {
+    list.innerHTML = '<div class="empty">No reports match your filters.</div>';
+    return;
+  }
+
+  list.innerHTML = filtered.map(function(r){
+    var when = new Date(r.created_at * 1000).toLocaleString('en-IN');
+    var statusText;
+    if (r.status === 'verified') statusText = 'Verified';
+    else if (r.status === 'pending') statusText = 'Pending';
+    else if (r.flag_reason === 'duplicate_image') statusText = 'Flagged — duplicate image';
+    else statusText = 'Flagged — no matching ground data';
+
+    var thumbHtml = r.photo_path
+      ? '<img class="feed-thumb" src="' + API_BASE + r.photo_path + '" alt="submitted photo">'
+      : '';
+
+    return '<div class="feed-item status-' + r.status + '">' +
+      thumbHtml +
+      '<div style="flex:1;">' +
+      '<span class="status-tag status-' + r.status + '">' + statusText + '</span>' +
+      '<p class="feed-desc">' + r.description + '</p>' +
+      '<div class="feed-meta"><span>' + r.source + '</span><span>' + r.city_id + '</span><span>' + when + '</span></div>' +
+      '</div></div>';
+  }).join('');
+}
+
+/* ================= SOURCES ================= */
 var SOURCES = [
   ['Live deployed prototype', 'weather-data-analysis-steel.vercel.app', null],
   ['Source code (GitHub)', 'github.com/mugesh3112007-sudo/weather-data-analysis', 'https://github.com/mugesh3112007-sudo/weather-data-analysis'],
@@ -266,7 +880,7 @@ var SOURCES = [
 function renderSources(){
   el('content').innerHTML =
     '<div class="panel"><div class="panel-head"><h2>Data sources &amp; credits</h2><span class="meta">transparency</span></div>' +
-    '<div class="source-list" id="sourceList"><div class="empty">Loading…</div></div></div>';
+    '<div class="source-list" id="sourceList"><div class="empty skeleton">Loading…</div></div></div>';
 
   fetch(API_BASE + '/api/source-status').then(function(r){ return r.json(); }).then(function(data){
     var liveRows = data.sources.map(function(s){
@@ -300,6 +914,7 @@ function renderSources(){
   });
 }
 
+/* ================= SUBMIT ================= */
 function renderSubmit(){
   var cities = citiesCache || [];
   function draw(){
@@ -310,7 +925,7 @@ function renderSubmit(){
       '<form id="reportForm">' +
       '<div class="field"><label>City</label><select id="fCity">' + opts + '</select></div>' +
       '<div class="field"><label>Event type</label><select id="fType">' + typeOpts + '</select></div>' +
-      '<div class="field"><label>Description</label><textarea id="fDesc" placeholder="What are you seeing right now?"></textarea></div>' +
+      '<div class="field"><label>Description</label><textarea id="fDesc" placeholder="What are you seeing right now?" required minlength="10"></textarea></div>' +
       '<div class="field"><label>Photo (optional — checked for recycled/duplicate images)</label>' +
         '<div class="file-drop" id="fileDrop"><span id="fileDropLabel">Click to attach a photo</span><input type="file" id="fPhoto" accept="image/*" class="hidden"><img id="filePreview" class="hidden"></div>' +
       '</div>' +
@@ -343,7 +958,7 @@ function renderSubmit(){
       var formData = new FormData();
       formData.append('city_id', el('fCity').value);
       formData.append('type', eventType);
-      formData.append('description', el('fDesc').value || 'No description provided.');
+      formData.append('description', el('fDesc').value);
       if (fPhoto.files && fPhoto.files[0]) {
         formData.append('photo', fPhoto.files[0]);
       }
@@ -357,14 +972,17 @@ function renderSubmit(){
           res.innerHTML = '<h3>⚠ Flagged — duplicate image detected</h3>' +
             '<p>This photo\'s visual fingerprint matches report #' + data.duplicate_of +
             ' already in the system — it looks like a recycled or reposted image rather than new evidence.</p>';
+          showToast('Report flagged: Duplicate image', 'error');
         } else if (data.matches) {
           res.className = 'result show ok';
           res.innerHTML = '<h3>✓ Verified against live data</h3><p>Live conditions for this city show ' +
             data.ground_truth.condition_label + ', matching your report.</p>';
+          showToast('Report successfully verified!', 'success');
         } else {
           res.className = 'result show bad';
           res.innerHTML = '<h3>⚠ Flagged — no match</h3><p>You reported ' + EVENT_LABELS[eventType] +
             ', but live conditions show ' + data.ground_truth.condition_label + '. This report is flagged for review.</p>';
+          showToast('Report flagged for review', 'error');
         }
         btn.disabled = false; btn.textContent = 'Submit & verify against live data';
         el('reportForm').reset();
@@ -373,6 +991,7 @@ function renderSubmit(){
       }).catch(function(){
         btn.disabled = false; btn.textContent = 'Submit & verify against live data';
         alert('Something went wrong reaching the server.');
+        showToast('Network error submitting report', 'error');
       });
     });
   }
@@ -380,7 +999,17 @@ function renderSubmit(){
   else fetch(API_BASE + '/api/cities').then(function(r){ return r.json(); }).then(function(c){ citiesCache = c; cities = c; draw(); });
 }
 
+// Initial boot
 render();
+
+// Register service worker for PWA / offline support
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').then(function(reg) {
+    console.log('[SW] Registered:', reg.scope);
+  }).catch(function(err) {
+    console.log('[SW] Registration failed:', err);
+  });
+}
 </script>
 </body>
 </html>
