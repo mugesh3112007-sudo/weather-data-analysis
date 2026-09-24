@@ -759,6 +759,87 @@ nav button .tab-icon { font-size: 14px; }
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   MAP SEARCH & EXPLORE
+   ═══════════════════════════════════════════════════════════════ */
+.map-search-wrap {
+  position: relative;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.map-search-input {
+  flex: 1;
+  min-width: 200px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px 10px 38px;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  outline: none;
+  transition: all var(--dur) var(--ease);
+}
+.map-search-input::placeholder { color: var(--text-faint); }
+.map-search-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+.map-search-icon {
+  position: absolute;
+  left: 32px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-faint);
+  font-size: 15px;
+  pointer-events: none;
+}
+.map-search-hint {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  font-weight: 500;
+}
+.map-search-hint em { font-style: normal; color: var(--accent); }
+
+.map-search-results {
+  position: absolute;
+  top: 100%;
+  left: 20px;
+  right: 20px;
+  z-index: 1000;
+  background: var(--bg-panel-solid);
+  border: 1px solid var(--border-strong);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  max-height: 240px;
+  overflow-y: auto;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  display: none;
+}
+.map-search-results.show { display: block; }
+.map-sr-item {
+  padding: 10px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.map-sr-item:last-child { border-bottom: none; }
+.map-sr-item:hover { background: var(--bg-hover); }
+.map-sr-name { font-size: 13px; font-weight: 600; }
+.map-sr-detail { font-size: 11px; color: var(--text-faint); font-family: var(--font-mono); font-weight: 500; }
+.map-sr-icon { font-size: 16px; flex: none; }
+
+.map-click-popup b { font-size: 13.5px; }
+.map-click-popup .mcp-cond { font-family: var(--font-mono); font-size: 12px; margin-top: 4px; }
+.map-click-popup .mcp-loading { color: var(--text-faint); font-family: var(--font-mono); font-size: 11px; }
+
+/* ═══════════════════════════════════════════════════════════════
    RESPONSIVE
    ═══════════════════════════════════════════════════════════════ */
 @media (max-width: 640px) {
@@ -774,6 +855,8 @@ nav button .tab-icon { font-size: 14px; }
   .city-risk-grid { grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); gap: 8px; padding: 12px; }
   .impact-grid { grid-template-columns: 1fr; padding: 12px; }
   .pop-strip .ps-num { font-size: 24px; }
+  .map-search-wrap { padding: 10px 14px; }
+  .map-search-icon { left: 26px; }
 }
 </style>
 </head>
@@ -1100,7 +1183,13 @@ function renderImpactDetail(d){
 function renderMapTab(){
   el('content').innerHTML =
     '<div class="panel">' +
-      '<div class="panel-head"><h2>🗺️ Live Map — India</h2><span class="meta">CartoDB Dark Matter · click a marker</span></div>' +
+      '<div class="panel-head"><h2>🗺️ Live Map — Anywhere</h2><span class="meta">search or click anywhere</span></div>' +
+      '<div class="map-search-wrap">' +
+        '<span class="map-search-icon">🔍</span>' +
+        '<input type="text" class="map-search-input" id="mapSearchInput" placeholder="Search any city, town, or village…" autocomplete="off">' +
+        '<span class="map-search-hint"><em>Click anywhere</em> on the map for weather</span>' +
+        '<div class="map-search-results" id="mapSearchResults"></div>' +
+      '</div>' +
       '<div id="mapEl"></div>' +
       '<div class="legend">' +
         '<span><i style="background:'+resolveColor(CONDITION_COLOR.flood)+'"></i>Flood</span>' +
@@ -1112,6 +1201,9 @@ function renderMapTab(){
     '</div>' +
     '<div class="panel"><div class="panel-head"><h2>Tracked Cities</h2></div>' +
     '<div class="city-grid" id="cityGrid">' + shimmerCards(11, 80).replace('175px','220px') + '</div></div>';
+
+  // Wire up search
+  initMapSearch();
 
   fetch(API_BASE + '/api/cities').then(function(r){ return r.json(); }).then(function(cities){
     citiesCache = cities;
@@ -1142,6 +1234,7 @@ function renderMapTab(){
 }
 
 var markersByCity = {};
+var exploreMarkers = []; // temporary markers from search / click
 
 function initMap(cities){
   var container = el('mapEl');
@@ -1151,7 +1244,7 @@ function initMap(cities){
 
   // Dark-themed via CSS filter on standard OSM tiles (no API key needed)
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 12,
+    maxZoom: 18,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
   }).addTo(leafletMap);
 
@@ -1164,6 +1257,183 @@ function initMap(cities){
     m.bindPopup('<b>' + c.name + '</b><br>Loading live data…');
     markersByCity[c.id] = m;
   });
+
+  // Click anywhere on map to get weather
+  leafletMap.on('click', function(e){
+    var lat = e.latlng.lat.toFixed(4);
+    var lon = e.latlng.lng.toFixed(4);
+    addExploreMarker(parseFloat(lat), parseFloat(lon), lat + '°, ' + lon + '°');
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EXPLORE — fetch weather for ANY lat/lon directly from Open-Meteo
+// ═══════════════════════════════════════════════════════════════
+var WEATHER_CODE_LABELS = {
+  0:'Clear sky', 1:'Mainly clear', 2:'Partly cloudy', 3:'Overcast',
+  45:'Fog', 48:'Depositing rime fog',
+  51:'Light drizzle', 53:'Moderate drizzle', 55:'Dense drizzle',
+  56:'Light freezing drizzle', 57:'Dense freezing drizzle',
+  61:'Slight rain', 63:'Moderate rain', 65:'Heavy rain',
+  66:'Light freezing rain', 67:'Heavy freezing rain',
+  71:'Slight snow', 73:'Moderate snow', 75:'Heavy snow',
+  77:'Snow grains', 80:'Slight showers', 81:'Moderate showers', 82:'Violent showers',
+  85:'Slight snow showers', 86:'Heavy snow showers',
+  95:'Thunderstorm', 96:'Thunderstorm with slight hail', 99:'Thunderstorm with heavy hail'
+};
+
+function classifyWeatherCode(code, temp, precip) {
+  if (temp !== null && temp >= 40) return 'heatwave';
+  if (code === 45 || code === 48) return 'fog';
+  if (code === 95 || code === 96 || code === 99) return 'storm';
+  if ([51,53,55,56,57,61,63,65,66,67,80,81,82].indexOf(code) !== -1) {
+    if (precip !== null && precip >= 15) return 'flood';
+    return 'storm';
+  }
+  return 'clear';
+}
+
+function fetchWeatherAnywhere(lat, lon, callback) {
+  var url = 'https://api.open-meteo.com/v1/forecast' +
+    '?latitude=' + lat + '&longitude=' + lon +
+    '&current_weather=true&hourly=precipitation&timezone=auto';
+  fetch(url).then(function(r){ return r.json(); }).then(function(data){
+    var cw = data.current_weather || {};
+    var code = cw.weathercode;
+    var temp = cw.temperature;
+    var precip = null;
+    try {
+      var times = data.hourly.time;
+      var pArr = data.hourly.precipitation;
+      var ct = cw.time;
+      if (ct && times.indexOf(ct) !== -1) precip = pArr[times.indexOf(ct)];
+    } catch(e){}
+    var condition = classifyWeatherCode(code, temp, precip);
+    callback({
+      temperature_c: temp,
+      precipitation_mm: precip,
+      weathercode: code,
+      condition: condition,
+      condition_label: WEATHER_CODE_LABELS[code] || EVENT_LABELS[condition] || 'Unknown',
+      wind_speed: cw.windspeed || null
+    });
+  }).catch(function(){
+    callback(null);
+  });
+}
+
+function addExploreMarker(lat, lon, name) {
+  if (!leafletMap) return;
+  // Remove old explore markers (keep last 10)
+  if (exploreMarkers.length >= 10) {
+    var old = exploreMarkers.shift();
+    leafletMap.removeLayer(old);
+  }
+
+  var m = L.circleMarker([lat, lon], {
+    radius: 9, weight: 2, color: resolveColor('var(--accent)'),
+    fillColor: resolveColor('var(--accent)'), fillOpacity: 0.9
+  }).addTo(leafletMap);
+
+  m.bindPopup('<div class="map-click-popup"><b>' + name + '</b><div class="mcp-loading">Fetching live weather…</div></div>').openPopup();
+  exploreMarkers.push(m);
+
+  leafletMap.flyTo([lat, lon], Math.max(leafletMap.getZoom(), 8), { duration: 0.8 });
+
+  fetchWeatherAnywhere(lat, lon, function(w) {
+    if (!w) {
+      m.setPopupContent('<div class="map-click-popup"><b>' + name + '</b><div class="mcp-loading">Weather unavailable</div></div>');
+      return;
+    }
+    var color = resolveColor(CONDITION_COLOR[w.condition] || 'var(--text-faint)');
+    m.setStyle({ color: color, fillColor: color });
+    var html = '<div class="map-click-popup">' +
+      '<b>' + name + '</b>' +
+      '<div class="mcp-cond">' + w.condition_label + '</div>' +
+      '<div class="mcp-cond">' + (w.temperature_c != null ? w.temperature_c + '°C' : '') +
+        (w.precipitation_mm != null ? ' · ' + w.precipitation_mm + ' mm/hr' : '') +
+        (w.wind_speed != null ? ' · ' + w.wind_speed + ' km/h' : '') +
+      '</div></div>';
+    m.setPopupContent(html);
+    m.openPopup();
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MAP SEARCH — Geocoding via Open-Meteo (free, no API key)
+// ═══════════════════════════════════════════════════════════════
+var searchTimeout = null;
+
+function initMapSearch() {
+  var input = el('mapSearchInput');
+  var dropdown = el('mapSearchResults');
+  if (!input || !dropdown) return;
+
+  input.addEventListener('input', function() {
+    var q = input.value.trim();
+    if (searchTimeout) clearTimeout(searchTimeout);
+    if (q.length < 2) { dropdown.classList.remove('show'); return; }
+    searchTimeout = setTimeout(function() { searchPlaces(q); }, 300);
+  });
+
+  input.addEventListener('focus', function() {
+    if (dropdown.children.length > 0 && input.value.trim().length >= 2) dropdown.classList.add('show');
+  });
+
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('.map-search-wrap')) dropdown.classList.remove('show');
+  });
+}
+
+function searchPlaces(query) {
+  var dropdown = el('mapSearchResults');
+  var url = 'https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(query) + '&count=8&language=en&format=json';
+
+  fetch(url).then(function(r){ return r.json(); }).then(function(data) {
+    var results = data.results || [];
+    if (!results.length) {
+      dropdown.innerHTML = '<div class="map-sr-item"><span class="map-sr-detail">No results found</span></div>';
+      dropdown.classList.add('show');
+      return;
+    }
+    dropdown.innerHTML = results.map(function(r) {
+      var detail = [r.admin1, r.country].filter(Boolean).join(', ');
+      var flag = r.country_code ? countryFlag(r.country_code) : '📍';
+      return '<div class="map-sr-item" data-lat="' + r.latitude + '" data-lon="' + r.longitude + '" data-name="' + escHtml(r.name) + '">' +
+        '<span class="map-sr-icon">' + flag + '</span>' +
+        '<div><div class="map-sr-name">' + escHtml(r.name) + '</div>' +
+        '<div class="map-sr-detail">' + escHtml(detail) + ' · ' + r.latitude.toFixed(2) + '°, ' + r.longitude.toFixed(2) + '°</div></div>' +
+      '</div>';
+    }).join('');
+    dropdown.classList.add('show');
+
+    // Bind click
+    dropdown.querySelectorAll('.map-sr-item[data-lat]').forEach(function(item) {
+      item.addEventListener('click', function() {
+        var lat = parseFloat(item.getAttribute('data-lat'));
+        var lon = parseFloat(item.getAttribute('data-lon'));
+        var name = item.getAttribute('data-name');
+        dropdown.classList.remove('show');
+        el('mapSearchInput').value = name;
+        addExploreMarker(lat, lon, name);
+      });
+    });
+  }).catch(function() {
+    dropdown.innerHTML = '<div class="map-sr-item"><span class="map-sr-detail">Search failed — try again</span></div>';
+    dropdown.classList.add('show');
+  });
+}
+
+function countryFlag(code) {
+  try {
+    return String.fromCodePoint.apply(null, code.toUpperCase().split('').map(function(c){ return 0x1F1E6 - 65 + c.charCodeAt(0); }));
+  } catch(e) { return '📍'; }
+}
+
+function escHtml(s) {
+  var d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
 }
 
 function colorMarker(cityId, ground){
